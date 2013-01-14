@@ -290,7 +290,8 @@ int MonClient::init()
 	r = 0;
 	no_keyring_disabled_cephx = true;
       } else {
-	lderr(cct) << "ERROR: missing keyring, cannot use cephx for authentication" << dendl;
+        lderr(cct) << "ERROR: missing keyring (" << cct->_conf->keyring
+                   << "), cannot use cephx for authentication" << dendl;
       }
     }
   }
