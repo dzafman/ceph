@@ -1740,6 +1740,8 @@ bool OSDMonitor::preprocess_command(MMonCommand *m)
 	mon->store->get_bl_sn_safe(b,"osdmap_full", epoch);
 	if (!b.length()) {
 	  p = 0;
+          if (format != "json")
+            ss << "no such epoch " << epoch;
 	  r = -ENOENT;
 	} else {
 	  p = new OSDMap;

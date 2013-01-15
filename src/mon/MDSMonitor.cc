@@ -559,6 +559,8 @@ bool MDSMonitor::preprocess_command(MMonCommand *m)
 	if (!b.length()) {
 	  p = 0;
 	  r = -ENOENT;
+          if (format != "json")
+            ss << "no such map epoch " << epoch;
 	} else {
 	  p = new MDSMap;
 	  p->decode(b);
@@ -600,6 +602,7 @@ bool MDSMonitor::preprocess_command(MMonCommand *m)
 	mon->store->get_bl_sn_safe(b,"mdsmap",e);
 	if (!b.length()) {
 	  r = -ENOENT;
+          ss << "no such map epoch " << e;
 	} else {
 	  MDSMap mm;
 	  mm.decode(b);
