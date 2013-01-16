@@ -63,7 +63,7 @@ PG::PG(OSDService *o, OSDMapRef curmap,
        const hobject_t& ioid) :
   osd(o), osdmap_ref(curmap), pool(_pool),
   _lock("PG::_lock"),
-  ref(0), deleting(false), dirty_info(false), dirty_log(false),
+  ref(0), deleting(false), dirty_info(false), dirty_big_info(false), dirty_log(false),
   info(p), coll(p), log_oid(loid), biginfo_oid(ioid),
   recovery_item(this), scrub_item(this), scrub_finalize_item(this), snap_trim_item(this), stat_queue_item(this),
   recovery_ops_active(0),
@@ -96,6 +96,7 @@ void PG::lock(bool no_lockdep)
   _lock.Lock(no_lockdep);
   // if we have unrecorded dirty state with the lock dropped, there is a bug
   assert(!dirty_info);
+  assert(!dirty_big_info);
   assert(!dirty_log);
 
   dout(30) << "lock" << dendl;
@@ -106,6 +107,7 @@ void PG::lock_with_map_lock_held(bool no_lockdep)
   _lock.Lock(no_lockdep);
   // if we have unrecorded dirty state with the lock dropped, there is a bug
   assert(!dirty_info);
+  assert(!dirty_big_info);
   assert(!dirty_log);
 
   dout(30) << "lock_with_map_lock_held" << dendl;
@@ -461,6 +463,7 @@ void PG::rewind_divergent_log(ObjectStore::Transaction& t, eversion_t newhead)
     merge_old_entry(t, *d);
 
   dirty_info = true;
+  dirty_big_info = true;
   dirty_log = true;
 }
 
@@ -596,6 +599,7 @@ void PG::merge_log(ObjectStore::Transaction& t,
 
   if (changed) {
     dirty_info = true;
+    dirty_big_info = true;
     dirty_log = true;
   }
 }
@@ -880,6 +884,7 @@ void PG::generate_past_intervals()
 
   // record our work.
   dirty_info = true;
+  dirty_big_info = true;
 }
 
 /*
@@ -896,6 +901,7 @@ void PG::trim_past_intervals()
       return;
     dout(10) << __func__ << ": trimming " << pif->second << dendl;
     past_intervals.erase(pif++);
+    dirty_big_info = true;
   }
 }
 
@@ -1406,6 +1412,7 @@ void PG::activate(ObjectStore::Transaction& t,
 
   // write pg info, log
   dirty_info = true;
+  dirty_big_info = true; // maybe
   dirty_log = true;
 
   // clean up stray objects
@@ -2048,8 +2055,10 @@ void PG::split_into(pg_t child_pgid, PG *child, unsigned split_bits)
   _split_into(child_pgid, child, split_bits);
 
   child->dirty_info = true;
+  child->dirty_big_info = true;
   child->dirty_log = true;
   dirty_info = true;
+  dirty_big_info = true;
   dirty_log = true;
 }
 
@@ -2308,16 +2317,19 @@ void PG::write_info(ObjectStore::Transaction& t)
 
   t.collection_setattr(coll, "info", infobl);
  
-  // potentially big stuff
-  bufferlist bigbl;
-  ::encode(past_intervals, bigbl);
-  ::encode(snap_collections, bigbl);
-  ::encode(info.purged_snaps, bigbl);
-  dout(20) << "write_info bigbl " << bigbl.length() << dendl;
-  t.truncate(coll_t::META_COLL, biginfo_oid, 0);
-  t.write(coll_t::META_COLL, biginfo_oid, 0, bigbl.length(), bigbl);
+  if (dirty_big_info) {
+    // potentially big stuff
+    bufferlist bigbl;
+    ::encode(past_intervals, bigbl);
+    ::encode(snap_collections, bigbl);
+    ::encode(info.purged_snaps, bigbl);
+    dout(20) << "write_info bigbl " << bigbl.length() << dendl;
+    t.truncate(coll_t::META_COLL, biginfo_oid, 0);
+    t.write(coll_t::META_COLL, biginfo_oid, 0, bigbl.length(), bigbl);
+  }
 
   dirty_info = false;
+  dirty_big_info = false;
 }
 
 epoch_t PG::peek_map_epoch(ObjectStore *store, coll_t coll, bufferlist *bl)
@@ -4626,6 +4638,7 @@ void PG::start_peering_interval(const OSDMapRef lastmap,
   if (!lastmap) {
     dout(10) << " no lastmap" << dendl;
     dirty_info = true;
+    dirty_big_info = true;
   } else {
     bool new_interval = pg_interval_t::check_new_interval(
       oldacting, newacting,
@@ -4637,6 +4650,7 @@ void PG::start_peering_interval(const OSDMapRef lastmap,
     if (new_interval) {
       dout(10) << " noting past " << past_intervals.rbegin()->second << dendl;
       dirty_info = true;
+      dirty_big_info = true;
     }
   }
 
@@ -4751,6 +4765,7 @@ void PG::proc_primary_info(ObjectStore::Transaction &t, const pg_info_t &oinfo)
       adjust_local_snaps();
     }
     dirty_info = true;
+    dirty_big_info = true;
   }
 }
 
@@ -5904,6 +5919,7 @@ boost::statechart::result PG::RecoveryState::Active::react(const AdvMap& advmap)
     pg->snap_trimq.union_of(pg->pool.newly_removed_snaps);
     dout(10) << *pg << " snap_trimq now " << pg->snap_trimq << dendl;
     pg->dirty_info = true;
+    pg->dirty_big_info = true;
   }
   pg->check_recovery_sources(pg->get_osdmap());
 
@@ -6223,6 +6239,7 @@ boost::statechart::result PG::RecoveryState::Stray::react(const MLogRec& logevt)
     pg->osd->reg_last_pg_scrub(pg->info.pgid,
 			       pg->info.history.last_scrub_stamp);
     pg->dirty_info = true;
+    pg->dirty_big_info = true;  // maybe.
     pg->dirty_log = true;
     pg->log.claim_log(msg->log);
     pg->missing.clear();
