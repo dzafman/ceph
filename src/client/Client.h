@@ -393,7 +393,7 @@ protected:
 
   Client(Messenger *m, MonClient *mc);
   ~Client();
-  void tear_down_cache();   
+  void tear_down_cache();
 
   client_t get_nodeid() { return whoami; }
 

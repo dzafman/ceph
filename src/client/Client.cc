@@ -5201,9 +5201,8 @@ Fh *Client::_create_fh(Inode *in, int flags, int cmode)
   // yay
   Fh *f = new Fh;
   f->mode = cmode;
-  if (flags & O_APPEND)
-    f->append = true;
-  
+  f->flags = flags;
+
   // inode
   assert(in);
   f->inode = in;
@@ -5679,7 +5678,7 @@ int Client::_write(Fh *f, int64_t offset, uint64_t size, const char *buf)
      * FIXME: this is racy in that we may block _after_ this point waiting for caps, and size may
      * change out from under us.
      */
-    if (f->append)
+    if (f->flags & O_APPEND)
       _lseek(f, 0, SEEK_END);
     offset = f->pos;
     f->pos = offset+size;    
@@ -5730,12 +5729,12 @@ int Client::_write(Fh *f, int64_t offset, uint64_t size, const char *buf)
 
     unsafe_sync_write++;
     get_cap_ref(in, CEPH_CAP_FILE_BUFFER);  // released by onsafe callback
-    
+
     filer->write_trunc(in->ino, &in->layout, in->snaprealm->get_snap_context(),
 		       offset, size, bl, ceph_clock_now(cct), 0,
 		       in->truncate_size, in->truncate_seq,
 		       onfinish, onsafe);
-    
+
     client_lock.Unlock();
     flock.Lock();
     while (!done)
@@ -5748,19 +5747,19 @@ int Client::_write(Fh *f, int64_t offset, uint64_t size, const char *buf)
   utime_t lat = ceph_clock_now(cct);
   lat -= start;
   logger->tinc(l_c_wrlat, lat);
-    
+
   // assume success for now.  FIXME.
   uint64_t totalwritten = size;
-  
+
   // extend file?
   if (totalwritten + offset > in->size) {
     in->size = totalwritten + offset;
     mark_caps_dirty(in, CEPH_CAP_FILE_WR);
-    
+
     if ((in->size << 1) >= in->max_size &&
 	(in->reported_size << 1) < in->max_size)
       check_caps(in, false);
-      
+
     ldout(cct, 7) << "wrote to " << totalwritten+offset << ", extending file size" << dendl;
   } else {
     ldout(cct, 7) << "wrote to " << totalwritten+offset << ", leaving file size at " << in->size << dendl;
@@ -5771,9 +5770,16 @@ int Client::_write(Fh *f, int64_t offset, uint64_t size, const char *buf)
   mark_caps_dirty(in, CEPH_CAP_FILE_WR);
 
   put_cap_ref(in, CEPH_CAP_FILE_WR);
-  
+
+  // flush cached write if O_SYNC is set on file fh
+  if (f->flags & O_SYNC) {
+    r = _fsync(f, false);
+    if (r != 0) {
+      return r;
+    }
+  }
   // ok!
-  return totalwritten;  
+  return totalwritten;
 }
 
 int Client::_flush(Fh *f)
