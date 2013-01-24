@@ -108,7 +108,9 @@ ceph_conf_SOURCES = ceph_conf.cc
 ceph_conf_LDADD = $(LIBGLOBAL_LDA)
 ceph_authtool_SOURCES = ceph_authtool.cc
 ceph_authtool_LDADD = $(LIBGLOBAL_LDA)
-bin_PROGRAMS += ceph ceph-conf ceph-authtool
+ceph_filestore_dump_SOURCES = tools/ceph-filestore-dump.cc
+ceph_filestore_dump_LDADD = $(LIBGLOBAL_LDA)
+bin_PROGRAMS += ceph ceph-conf ceph-authtool ceph-filestore-dump
 
 monmaptool_SOURCES = monmaptool.cc
 monmaptool_LDADD = $(LIBGLOBAL_LDA)
