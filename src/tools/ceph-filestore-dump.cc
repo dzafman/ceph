@@ -3,8 +3,6 @@
 /*
  * Ceph - scalable distributed file system
  *
- * Copyright (C) 2004-2010 Sage Weil <sage@newdream.net>
- * Copyright (C) 2010 Dreamhost
  * Copyright (C) 2013 Inktank
  *
  * This is free software; you can redistribute it and/or
@@ -14,6 +12,24 @@
  *
  */
 
+#include <boost/scoped_ptr.hpp>
+#include <boost/lexical_cast.hpp>
+#include <boost/program_options/option.hpp>
+#include <boost/program_options/options_description.hpp>
+#include <boost/program_options/variables_map.hpp>
+#include <boost/program_options/cmdline.hpp>
+#include <boost/program_options/parsers.hpp>
+#include <iostream>
+#include <set>
+#include <sstream>
+#include <stdlib.h>
+#include <fstream>
+#include <iostream>
+
+#include "common/Formatter.h"
+
+namespace po = boost::program_options;
+using namespace std;
 
 #include <limits.h>
 #include <errno.h>
@@ -42,6 +58,7 @@ using std::vector;
 
 void do_status(CephToolCtx *ctx, bool shutdown = false);
 
+#if 0
 static void usage()
 {
   cout << "usage:\n";
@@ -52,6 +69,7 @@ static void usage()
   exit(1);
 #endif
 }
+#endif
 
 static void invalid_path(string &path)
 {
@@ -59,6 +77,7 @@ static void invalid_path(string &path)
   exit(1);
 }
 
+#if 0
 static void parse_cmd_args(vector<const char*> &args, string &path, string &pgid, string &type)
 {
   std::vector<const char*>::iterator i;
@@ -86,6 +105,7 @@ static void parse_cmd_args(vector<const char*> &args, string &path, string &pgid
   if (i != args.end())
     usage();
 }
+#endif
 
 int main(int argc, const char **argv)
 {
@@ -95,12 +115,43 @@ int main(int argc, const char **argv)
   env_to_vec(args);
   string path, pgid, type;
 
+  namespace po = boost::program_options;
+  po::options_description desc("Allowed options");
+  desc.add_options()
+    ("help,h", "produce help message")
+    ("path", po::value<string>(&path), "")
+    ("pgid", po::value<string>(&pgid), "")
+    ("type", po::value<string>(&type), "")
+    ;
+
+  po::positional_options_description positionalOptions;
+  positionalOptions.add("path",1);
+  positionalOptions.add("pgid",1);
+  positionalOptions.add("type",1); //info or log
+
+  po::variables_map vm;
+  po::parsed_options parsed = po::command_line_parser(argc, argv)
+						.options(desc)
+						.positional(positionalOptions)
+						.run();
+  po::store(parsed, vm);
+  //po::store(po::parse_command_line(argc, argv, desc), vm);
+  po::notify(vm);
+
+  if (vm.count("help")) {
+    cout << desc << std::endl;
+    return 1;
+  }
+
   // initialize globals
   global_init(NULL, args, CEPH_ENTITY_TYPE_CLIENT, CODE_ENVIRONMENT_UTILITY, 0);
   common_init_finish(g_ceph_context);
 
-  // parse user input
-  parse_cmd_args(args, path, pgid, type);
+  if (path.length() == 0 || pgid.length() == 0 ||
+    (type != "info" && type != "log")) {
+    cerr << "Invalid params" << std::endl;
+    exit(1);
+  }
 
   //Verify that path really is an osd store
   struct stat st;
@@ -128,42 +179,16 @@ int main(int argc, const char **argv)
     invalid_path(path);
   }
 
+  path = path + "/current/meta";
 
   //CephToolCtx *ctx = ceph_tool_common_init(mode, concise);
   //if (!ctx) {
   //  derr << "ceph_tool_common_init failed." << dendl;
   //  return 1;
   //}
-  signal(SIGINT, SIG_DFL);
-  signal(SIGTERM, SIG_DFL);
 
-  bufferlist outbl;
   int ret = 0;
-  string output_line = "args path " + path + " pgid " + pgid + " type " + type + "\n";
-  ::encode(output_line, outbl);
- 
-  if (ret == 0 && outbl.length()) {
-    // output
-    int err;
-    if (out_file.empty() || out_file == "-") {
-      err = outbl.write_fd(STDOUT_FILENO);
-    } else {
-      int out_fd = TEMP_FAILURE_RETRY(::open(out_file.c_str(), O_WRONLY|O_CREAT|O_TRUNC, 0644));
-      if (out_fd < 0) {
-	int ret = errno;
-	derr << " failed to create file '" << out_file << "': "
-	     << cpp_strerror(ret) << dendl;
-	return 1;
-      }
-      err = outbl.write_fd(out_fd);
-      ::close(out_fd);
-    }
-    if (err) {
-      derr << " failed to write " << outbl.length() << " bytes to " << out_file << ": "
-	   << cpp_strerror(err) << dendl;
-      ret = 1;
-    }
-  }
+  cout << "args path " + path + " pgid " + pgid + " type " + type + "\n";
 
   //if (ceph_tool_common_shutdown(ctx))
   //  ret = 1;
