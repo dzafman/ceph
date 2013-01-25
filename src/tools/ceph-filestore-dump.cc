@@ -32,6 +32,8 @@
 #include "os/ObjectStore.h"
 #include "os/FileStore.h"
 #include "common/perf_counters.h"
+#include "common/errno.h"
+#include "osd/PG.h"
 
 namespace po = boost::program_options;
 using namespace std;
@@ -156,6 +158,72 @@ int main(int argc, char **argv)
   if (fs->mount() < 0) {
     cout << "mount failed" << std::endl;
     return 1;
+  }
+
+  vector<coll_t> ls;
+  int r = fs->list_collections(ls);
+  if (r < 0) {
+    cerr << "failed to list pgs: " << cpp_strerror(-r) << std::endl;
+    exit(1);
+  }
+
+  for (vector<coll_t>::iterator it = ls.begin();
+       it != ls.end();
+       it++) {
+    pg_t pgid;
+    snapid_t snap;
+    if (!it->is_pg(pgid, snap)) {
+       cout << " skipping !is_pg()" << std::endl;
+#if 0
+      if (it->is_temp(pgid))
+	clear_temp(store, *it);
+      dout(10) << "load_pgs skipping non-pg " << *it << dendl;
+      if (it->is_temp(pgid)) {
+	clear_temp(store, *it);
+	continue;
+      }
+      uint64_t seq;
+      if (it->is_removal(&seq, &pgid)) {
+	if (seq >= next_removal_seq)
+	  next_removal_seq = seq + 1;
+	dout(10) << "queueing coll " << *it << " for removal, seq is "
+		 << seq << "pgid is " << pgid << dendl;
+	boost::tuple<coll_t, SequencerRef, DeletingStateRef> *to_queue =
+	  new boost::tuple<coll_t, SequencerRef, DeletingStateRef>;
+	to_queue->get<0>() = *it;
+	to_queue->get<1>() = service.osr_registry.lookup_or_create(
+	  pgid, stringify(pgid));
+	to_queue->get<2>() = service.deleting_pgs.lookup_or_create(pgid);
+	remove_wq.queue(to_queue);
+	continue;
+      }
+#endif
+      continue;
+    }
+    if (snap != CEPH_NOSNAP) {
+      cout << "load_pgs skipping snapped dir " << *it
+	       << " (pg " << pgid << " snap " << snap << ")" << std::endl;
+      continue;
+    }
+
+#if 0
+    if (!osdmap->have_pg_pool(pgid.pool())) {
+      dout(10) << __func__ << ": skipping PG " << pgid << " because we don't have pool "
+	       << pgid.pool() << dendl;
+      continue;
+    }
+
+    if (pgid.preferred() >= 0) {
+      dout(10) << __func__ << ": skipping localized PG " << pgid << dendl;
+      // FIXME: delete it too, eventually
+      continue;
+    }
+#endif
+
+    bufferlist bl;
+    epoch_t map_epoch = PG::peek_map_epoch(fs, *it, &bl);
+
+    cout << " scan pg=" << pgid << " map_epoch=" << map_epoch << std::endl;
   }
 
   if (fs->umount() < 0) {
