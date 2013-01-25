@@ -150,8 +150,15 @@ int main(int argc, char **argv)
   //  return 1;
   //}
 
+  pg_t arg_pgid;
+  if (!arg_pgid.parse(pgid.c_str())) {
+    cerr << "Invalid pgid '" << pgid << "' specified" << std::endl;
+    exit(1);
+  }
+
   int ret = 0;
   cout << "args fspath " + fspath + " jpath " + jpath + " pgid " + pgid + " type " + type + "\n";
+
 
   ObjectStore *fs = new FileStore(fspath, jpath);
   
@@ -160,6 +167,7 @@ int main(int argc, char **argv)
     return 1;
   }
 
+  bool found = false;
   vector<coll_t> ls;
   int r = fs->list_collections(ls);
   if (r < 0) {
@@ -173,7 +181,7 @@ int main(int argc, char **argv)
     pg_t pgid;
     snapid_t snap;
     if (!it->is_pg(pgid, snap)) {
-       cout << " skipping !is_pg()" << std::endl;
+       //cout << " skipping !is_pg()" << std::endl;
 #if 0
       if (it->is_temp(pgid))
 	clear_temp(store, *it);
@@ -200,6 +208,10 @@ int main(int argc, char **argv)
 #endif
       continue;
     }
+
+    if (pgid != arg_pgid) {
+      continue;
+    }
     if (snap != CEPH_NOSNAP) {
       cout << "load_pgs skipping snapped dir " << *it
 	       << " (pg " << pgid << " snap " << snap << ")" << std::endl;
@@ -223,11 +235,17 @@ int main(int argc, char **argv)
     bufferlist bl;
     epoch_t map_epoch = PG::peek_map_epoch(fs, *it, &bl);
 
-    cout << " scan pg=" << pgid << " map_epoch=" << map_epoch << std::endl;
+    cout << " found pg=" << pgid << " map_epoch=" << map_epoch << " bl=" << string(bl.c_str(), bl.length()) << std::endl;
+    found = true;
+  }
+
+  if (!found) {
+    cerr << "PG '" << arg_pgid << "' not found" << std::endl;
+    ret = 1;
   }
 
   if (fs->umount() < 0) {
-    cout << "umount failed" << std::endl;
+    cerr << "umount failed" << std::endl;
     return 1;
   }
 
