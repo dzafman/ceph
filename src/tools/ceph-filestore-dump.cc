@@ -29,6 +29,7 @@
 #include "common/Formatter.h"
 
 #include "global/global_init.h"
+#include "os/ObjectStore.h"
 #include "os/FileStore.h"
 #include "common/perf_counters.h"
 
@@ -91,11 +92,12 @@ int main(int argc, char **argv)
   }
 
   global_init(
-    &def_args, ceph_options, CEPH_ENTITY_TYPE_CLIENT,
-    CODE_ENVIRONMENT_UTILITY,
-    CINIT_FLAG_NO_DEFAULT_CONFIG_FILE);
+    &def_args, ceph_options, CEPH_ENTITY_TYPE_OSD,
+    CODE_ENVIRONMENT_UTILITY, 0);
+    //CINIT_FLAG_NO_DEFAULT_CONFIG_FILE);
   common_init_finish(g_ceph_context);
   g_ceph_context->_conf->apply_changes(NULL);
+  g_conf = g_ceph_context->_conf;
 
   if (!vm.count("filestore-path") || !vm.count("journal-path")) {
     cout << "Must provide filestore-path and journal-path" << std::endl
@@ -148,6 +150,18 @@ int main(int argc, char **argv)
 
   int ret = 0;
   cout << "args fspath " + fspath + " jpath " + jpath + " pgid " + pgid + " type " + type + "\n";
+
+  ObjectStore *fs = new FileStore(fspath, jpath);
+  
+  if (fs->mount() < 0) {
+    cout << "mount failed" << std::endl;
+    return 1;
+  }
+
+  if (fs->umount() < 0) {
+    cout << "umount failed" << std::endl;
+    return 1;
+  }
 
   //if (ceph_tool_common_shutdown(ctx))
   //  ret = 1;
