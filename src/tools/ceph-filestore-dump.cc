@@ -38,6 +38,22 @@
 namespace po = boost::program_options;
 using namespace std;
 
+hobject_t make_pg_log_oid(pg_t pg) {
+  stringstream ss;
+  ss << "pglog_" << pg;
+  string s;
+  getline(ss, s);
+  return hobject_t(sobject_t(object_t(s.c_str()), 0));
+}
+  
+hobject_t make_pg_biginfo_oid(pg_t pg) {
+  stringstream ss;
+  ss << "pginfo_" << pg;
+  string s;
+  getline(ss, s);
+  return hobject_t(sobject_t(object_t(s.c_str()), 0));
+}
+
 #if 0
 struct MorePrinting : public DetailedStatCollector::AdditionalPrinting {
   CephContext *cct;
@@ -237,6 +253,20 @@ int main(int argc, char **argv)
 
     cout << " found pg=" << pgid << " map_epoch=" << map_epoch << " bl=" << string(bl.c_str(), bl.length()) << std::endl;
     found = true;
+
+    pg_info_t info;
+    map<epoch_t,pg_interval_t> past_intervals;
+    //hobject_t logoid = make_pg_log_oid(pgid);
+    hobject_t biginfo_oid = make_pg_biginfo_oid(pgid);
+    interval_set<snapid_t> snap_collections;
+    
+    int r = read_info(fs, bl, info, past_intervals, *it, biginfo_oid, snap_collections);
+    if (r < 0) {
+      cerr << "read_info error " << cpp_strerror(-r) << std::endl;
+      ret = 1;
+      continue;
+    }
+    cout << "info " << info << std::endl;
   }
 
   if (!found) {

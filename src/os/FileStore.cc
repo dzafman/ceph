@@ -227,8 +227,10 @@ int FileStore::lfn_open(coll_t cid, const hobject_t& oid, int flags, mode_t mode
   r = ::open((*path)->path(), flags, mode);
   if (r < 0) {
     r = -errno;
-    dout(10) << "error opening file " << (*path)->path() << " with flags="
-	     << flags << " and mode=" << mode << ": " << cpp_strerror(-r) << dendl;
+    cerr << "error opening file " << (*path)->path() << " with flags="
+	     << flags << " and mode=" << mode << ": " << cpp_strerror(-r) << std::endl;
+    //dout(10) << "error opening file " << (*path)->path() << " with flags="
+//	     << flags << " and mode=" << mode << ": " << cpp_strerror(-r) << dendl;
     goto fail;
   }
   fd = r;

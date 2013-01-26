@@ -2792,7 +2792,7 @@ std::string PG::get_corrupt_pg_log_name() const
   return buf;
 }
 
-void read_info(ObjectStore *store, bufferlist &bl, pg_info_t &info,
+int read_info(ObjectStore *store, bufferlist &bl, pg_info_t &info,
   map<epoch_t,pg_interval_t> &past_intervals, const coll_t coll,
   hobject_t &biginfo_oid, interval_set<snapid_t>  &snap_collections)
 {
@@ -2813,7 +2813,9 @@ void read_info(ObjectStore *store, bufferlist &bl, pg_info_t &info,
     ::decode(struct_v, p);
   } else {
     bl.clear();
-    store->read(coll_t::META_COLL, biginfo_oid, 0, 0, bl);
+    int r = store->read(coll_t::META_COLL, biginfo_oid, 0, 0, bl);
+    if (r < 0)
+       return r;
     p = bl.begin();
     ::decode(past_intervals, p);
   }
@@ -2832,12 +2834,12 @@ void read_info(ObjectStore *store, bufferlist &bl, pg_info_t &info,
     if (struct_v >= 4)
       ::decode(info, p);
   }
-  return;
+  return 0;
 }
 
 void PG::read_state(ObjectStore *store, bufferlist &bl)
 {
-  read_info(store, bl, info, past_intervals, coll, biginfo_oid,
+  (void)read_info(store, bl, info, past_intervals, coll, biginfo_oid,
     snap_collections);
 
   try {
