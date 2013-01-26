@@ -76,6 +76,8 @@ static void invalid_path(string &path)
 int main(int argc, char **argv)
 {
   string fspath, jpath, pgid, type;
+  Formatter *formatter = new JSONFormatter(true);
+
   po::options_description desc("Allowed options");
   desc.add_options()
     ("help", "produce help message")
@@ -173,7 +175,7 @@ int main(int argc, char **argv)
   }
 
   int ret = 0;
-  cout << "args fspath " + fspath + " jpath " + jpath + " pgid " + pgid + " type " + type + "\n";
+  //cout << "args fspath " + fspath + " jpath " + jpath + " pgid " + pgid + " type " + type + "\n";
 
 
   ObjectStore *fs = new FileStore(fspath, jpath);
@@ -250,23 +252,33 @@ int main(int argc, char **argv)
 
     bufferlist bl;
     epoch_t map_epoch = PG::peek_map_epoch(fs, *it, &bl);
+    (void)map_epoch;
 
-    cout << " found pg=" << pgid << " map_epoch=" << map_epoch << " bl=" << string(bl.c_str(), bl.length()) << std::endl;
+    //cout << " found pg=" << pgid << " map_epoch=" << map_epoch << " bl=" << string(bl.c_str(), bl.length()) << std::endl;
     found = true;
 
-    pg_info_t info;
-    map<epoch_t,pg_interval_t> past_intervals;
-    //hobject_t logoid = make_pg_log_oid(pgid);
-    hobject_t biginfo_oid = make_pg_biginfo_oid(pgid);
-    interval_set<snapid_t> snap_collections;
-    
-    int r = read_info(fs, bl, info, past_intervals, *it, biginfo_oid, snap_collections);
-    if (r < 0) {
-      cerr << "read_info error " << cpp_strerror(-r) << std::endl;
-      ret = 1;
-      continue;
+    if (type == "info") {
+      pg_info_t info;
+      map<epoch_t,pg_interval_t> past_intervals;
+      hobject_t biginfo_oid = make_pg_biginfo_oid(pgid);
+      interval_set<snapid_t> snap_collections;
+      
+      int r = read_info(fs, bl, info, past_intervals, *it, biginfo_oid, snap_collections);
+      if (r < 0) {
+        cerr << "read_info error " << cpp_strerror(-r) << std::endl;
+        ret = 1;
+        continue;
+      }
+      //cout << "info " << info << std::endl;
+      formatter->open_object_section("info");
+      info.dump(formatter);
+      formatter->close_section();
+      formatter->flush(cout);
+      cout << std::endl;
+      break;
+    } else if (type == "log") {
+      //hobject_t logoid = make_pg_log_oid(pgid);
     }
-    cout << "info " << info << std::endl;
   }
 
   if (!found) {
