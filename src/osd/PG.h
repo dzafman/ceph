@@ -1907,4 +1907,6 @@ typedef boost::intrusive_ptr<PG> PGRef;
 int read_info(ObjectStore *store, bufferlist &bl, pg_info_t &info,
   map<epoch_t,pg_interval_t> &past_intervals, const coll_t coll,
   hobject_t &biginfo_oid, interval_set<snapid_t>  &snap_collections);
+void read_log(ObjectStore *store, coll_t coll, PG::OndiskLog &ondisklog,
+ pg_info_t info, PG::IndexedLog &log, hobject_t log_oid, OSDService *osd);
 #endif

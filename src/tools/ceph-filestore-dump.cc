@@ -196,27 +196,28 @@ int main(int argc, char **argv)
   for (vector<coll_t>::iterator it = ls.begin();
        it != ls.end();
        it++) {
+    coll_t coll = *it;
     pg_t pgid;
     snapid_t snap;
     if (!it->is_pg(pgid, snap)) {
        //cout << " skipping !is_pg()" << std::endl;
 #if 0
       if (it->is_temp(pgid))
-	clear_temp(store, *it);
-      dout(10) << "load_pgs skipping non-pg " << *it << dendl;
+	clear_temp(store, coll);
+      dout(10) << "load_pgs skipping non-pg " << coll << dendl;
       if (it->is_temp(pgid)) {
-	clear_temp(store, *it);
+	clear_temp(store, coll);
 	continue;
       }
       uint64_t seq;
       if (it->is_removal(&seq, &pgid)) {
 	if (seq >= next_removal_seq)
 	  next_removal_seq = seq + 1;
-	dout(10) << "queueing coll " << *it << " for removal, seq is "
+	dout(10) << "queueing coll " << coll << " for removal, seq is "
 		 << seq << "pgid is " << pgid << dendl;
 	boost::tuple<coll_t, SequencerRef, DeletingStateRef> *to_queue =
 	  new boost::tuple<coll_t, SequencerRef, DeletingStateRef>;
-	to_queue->get<0>() = *it;
+	to_queue->get<0>() = coll;
 	to_queue->get<1>() = service.osr_registry.lookup_or_create(
 	  pgid, stringify(pgid));
 	to_queue->get<2>() = service.deleting_pgs.lookup_or_create(pgid);
@@ -231,7 +232,7 @@ int main(int argc, char **argv)
       continue;
     }
     if (snap != CEPH_NOSNAP) {
-      cout << "load_pgs skipping snapped dir " << *it
+      cout << "load_pgs skipping snapped dir " << coll
 	       << " (pg " << pgid << " snap " << snap << ")" << std::endl;
       continue;
     }
@@ -251,24 +252,25 @@ int main(int argc, char **argv)
 #endif
 
     bufferlist bl;
-    epoch_t map_epoch = PG::peek_map_epoch(fs, *it, &bl);
+    epoch_t map_epoch = PG::peek_map_epoch(fs, coll, &bl);
     (void)map_epoch;
 
     //cout << " found pg=" << pgid << " map_epoch=" << map_epoch << " bl=" << string(bl.c_str(), bl.length()) << std::endl;
     found = true;
 
+    pg_info_t info;
+    map<epoch_t,pg_interval_t> past_intervals;
+    hobject_t biginfo_oid = make_pg_biginfo_oid(pgid);
+    interval_set<snapid_t> snap_collections;
+
+    int r = read_info(fs, bl, info, past_intervals, coll, biginfo_oid, snap_collections);
+    if (r < 0) {
+      cerr << "read_info error " << cpp_strerror(-r) << std::endl;
+      ret = 1;
+      continue;
+    }
+
     if (type == "info") {
-      pg_info_t info;
-      map<epoch_t,pg_interval_t> past_intervals;
-      hobject_t biginfo_oid = make_pg_biginfo_oid(pgid);
-      interval_set<snapid_t> snap_collections;
-      
-      int r = read_info(fs, bl, info, past_intervals, *it, biginfo_oid, snap_collections);
-      if (r < 0) {
-        cerr << "read_info error " << cpp_strerror(-r) << std::endl;
-        ret = 1;
-        continue;
-      }
       //cout << "info " << info << std::endl;
       formatter->open_object_section("info");
       info.dump(formatter);
@@ -277,7 +279,24 @@ int main(int argc, char **argv)
       cout << std::endl;
       break;
     } else if (type == "log") {
-      //hobject_t logoid = make_pg_log_oid(pgid);
+      PG::OndiskLog ondisklog;
+      PG::IndexedLog log;
+      hobject_t logoid = make_pg_log_oid(pgid);
+      try {
+        read_log(fs, coll, ondisklog, info, log, logoid, NULL);
+      }
+      catch (const buffer::error &e) {
+        cerr << "read_log threw exception error", e.what();
+        ret = 1;
+        break;
+      }
+      
+      formatter->open_object_section("log");
+      log.dump(formatter);
+      formatter->close_section();
+      formatter->flush(cout);
+      cout << std::endl;
+
     }
   }
 
