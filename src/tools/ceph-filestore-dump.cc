@@ -159,7 +159,7 @@ int main(int argc, char **argv)
 
   pg_t arg_pgid;
   if (!arg_pgid.parse(pgid.c_str())) {
-    cerr << "Invalid pgid '" << pgid << "' specified" << std::endl;
+    cout << "Invalid pgid '" << pgid << "' specified" << std::endl;
     exit(1);
   }
 
@@ -181,7 +181,7 @@ int main(int argc, char **argv)
   vector<coll_t> ls;
   r = fs->list_collections(ls);
   if (r < 0) {
-    cerr << "failed to list pgs: " << cpp_strerror(-r) << std::endl;
+    cout << "failed to list pgs: " << cpp_strerror(-r) << std::endl;
     exit(1);
   }
 
@@ -199,7 +199,7 @@ int main(int argc, char **argv)
       continue;
     }
     if (snap != CEPH_NOSNAP) {
-      cout << "load_pgs skipping snapped dir " << coll
+      cout << "skipping snapped dir " << coll
 	       << " (pg " << pgid << " snap " << snap << ")" << std::endl;
       continue;
     }
@@ -221,7 +221,7 @@ int main(int argc, char **argv)
     int r = PG::read_info(fs, coll, bl, info, past_intervals, biginfo_oid,
       infos_oid, snap_collections, struct_v);
     if (r < 0) {
-      cerr << "read_info error " << cpp_strerror(-r) << std::endl;
+      cout << "read_info error " << cpp_strerror(-r) << std::endl;
       ret = 1;
       continue;
     }
@@ -244,10 +244,10 @@ int main(int argc, char **argv)
         ostringstream oss;
         PG::read_log(fs, coll, logoid, info, ondisklog, log, missing, oss);
         if (vm.count("debug"))
-          cerr << oss;
+          cout << oss;
       }
       catch (const buffer::error &e) {
-        cerr << "read_log threw exception error", e.what();
+        cout << "read_log threw exception error", e.what();
         ret = 1;
         break;
       }
@@ -267,12 +267,12 @@ int main(int argc, char **argv)
   }
 
   if (!found) {
-    cerr << "PG '" << arg_pgid << "' not found" << std::endl;
+    cout << "PG '" << arg_pgid << "' not found" << std::endl;
     ret = 1;
   }
 
   if (fs->umount() < 0) {
-    cerr << "umount failed" << std::endl;
+    cout << "umount failed" << std::endl;
     return 1;
   }
 
