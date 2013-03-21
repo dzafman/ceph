@@ -44,6 +44,113 @@ static void invalid_path(string &path)
   exit(1);
 }
 
+//Based on RemoveWQ::_process()
+void remove_coll(ObjectStore *store, const coll_t &coll)
+{
+  OSDriver driver(
+    store,
+    coll_t(),
+    OSD::make_snapmapper_oid());
+  SnapMapper mapper(&driver, 0, 0, 0);
+
+  vector<hobject_t> objects;
+  hobject_t max;
+  int r = 0;
+  int64_t num = 0;
+  ObjectStore::Transaction *t = new ObjectStore::Transaction;
+  cout << "remove_coll " << coll << std::endl;
+  while (!max.is_max()) {
+    r = store->collection_list_partial(coll, max, 200, 300, 0, &objects, &max);
+    if (r < 0)
+      return;
+    for (vector<hobject_t>::iterator i = objects.begin();
+	 i != objects.end();
+	 ++i, ++num) {
+
+      OSDriver::OSTransaction _t(driver.get_transaction(t));
+      cout << "remove " << *i << std::endl;
+      int r = mapper.remove_oid(*i, &_t);
+      if (r != 0 && r != -ENOENT) {
+        assert(0);
+      }
+
+      t->remove(coll, *i);
+      if (num >= 30) {
+        store->apply_transaction(*t);
+        delete t;
+        t = new ObjectStore::Transaction;
+        num = 0;
+      }
+    }
+  }
+  t->remove_collection(coll);
+  store->apply_transaction(*t);
+  delete t;
+}
+
+//Based on part of OSD::load_pgs()
+int finish_remove_pgs(ObjectStore *store, uint64_t *next_removal_seq)
+{
+  vector<coll_t> ls;
+  int r = store->list_collections(ls);
+  if (r < 0) {
+    cout << "finish_remove_pgs: failed to list pgs: " << cpp_strerror(-r) << std::endl;
+    return r;
+  }
+
+  for (vector<coll_t>::iterator it = ls.begin();
+       it != ls.end();
+       ++it) {
+    pg_t pgid;
+    snapid_t snap;
+
+    if (it->is_temp(pgid)) {
+      cout << "finish_remove_pgs " << *it << " clearing temp" << std::endl;
+      OSD::clear_temp(store, *it);
+      continue;
+    }
+
+    if (it->is_pg(pgid, snap)) {
+      continue;
+    }
+
+    uint64_t seq;
+    if (it->is_removal(&seq, &pgid)) {
+      if (seq >= *next_removal_seq)
+	*next_removal_seq = seq + 1;
+      cout << "finish_remove_pgs removing " << *it << ", seq is "
+	       << seq << " pgid is " << pgid << std::endl;
+      remove_coll(store, *it);
+      continue;
+    }
+
+    //cout << "finish_remove_pgs ignoring unrecognized " << *it << std::endl;
+  }
+  return 0;
+}
+
+int initiate_new_remove_pg(ObjectStore *store, pg_t r_pgid, uint64_t *next_removal_seq)
+{
+  ObjectStore::Transaction *rmt = new ObjectStore::Transaction;
+
+  if (store->collection_exists(coll_t(r_pgid))) {
+      coll_t to_remove = coll_t::make_removal_coll((*next_removal_seq)++, r_pgid);
+      cout << "collection rename " << coll_t(r_pgid) << " to " << to_remove << std::endl;
+      rmt->collection_rename(coll_t(r_pgid), to_remove);
+  } else {
+    return ENOENT;
+  }
+
+  cout << "remove " << coll_t::META_COLL << " " << OSD::make_pg_log_oid(r_pgid).oid << std::endl;
+  rmt->remove(coll_t::META_COLL, OSD::make_pg_log_oid(r_pgid));
+  cout << "remove " << coll_t::META_COLL << " " << OSD::make_pg_biginfo_oid(r_pgid).oid << std::endl;
+  rmt->remove(coll_t::META_COLL, OSD::make_pg_biginfo_oid(r_pgid));
+
+  store->apply_transaction(*rmt);
+
+  return 0;
+}
+
 int main(int argc, char **argv)
 {
   string fspath, jpath, pgid, type;
@@ -102,7 +209,7 @@ int main(int argc, char **argv)
   } 
   
   if (fspath.length() == 0 || jpath.length() == 0 || pgid.length() == 0 ||
-    (type != "info" && type != "log")) {
+    (type != "info" && type != "log" && type != "remove")) {
     cerr << "Invalid params" << std::endl;
     exit(1);
   }
@@ -177,6 +284,21 @@ int main(int argc, char **argv)
     return 1;
   }
 
+  uint64_t next_removal_seq = 0;	//My local seq
+
+  if (type == "remove") {
+    finish_remove_pgs(fs, &next_removal_seq);
+    int r = initiate_new_remove_pg(fs, arg_pgid, &next_removal_seq);
+    if (r) {
+      cout << "PG '" << arg_pgid << "' not found" << std::endl;
+      exit(1);
+    }
+    finish_remove_pgs(fs, &next_removal_seq);
+    cout << "Remove successful" << std::endl;
+    exit(0);
+  }
+
+  int err_count = 0;
   bool found = false;
   vector<coll_t> ls;
   r = fs->list_collections(ls);
