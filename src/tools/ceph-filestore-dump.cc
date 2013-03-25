@@ -230,7 +230,7 @@ int main(int argc, char **argv)
   } 
   
   if (fspath.length() == 0 || jpath.length() == 0 || pgidstr.length() == 0 ||
-    (type != "info" && type != "log" && type != "remove")) {
+    (type != "info" && type != "log" && type != "remove" && type != "export")) {
     cerr << "Invalid params" << std::endl;
     exit(1);
   }
@@ -375,7 +375,19 @@ int main(int argc, char **argv)
     if (vm.count("debug"))
       cerr << "struct_v " << (int)struct_v << std::endl;
 
-    if (type == "info") {
+    if (type == "export") {
+      PG::IndexedLog log;
+      pg_missing_t missing;
+      bufferlist ebl;
+  
+      ret = get_log(fs, coll, pgid, info, log, missing, vm.count("debug") != 0);
+      if (ret > 0)
+          goto out;
+  
+      info.encode(ebl);
+      log.encode(ebl);
+      ebl.write_fd(1);
+    } else if (type == "info") {
       formatter->open_object_section("info");
       info.dump(formatter);
       formatter->close_section();
