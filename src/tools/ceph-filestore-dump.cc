@@ -230,7 +230,7 @@ int main(int argc, char **argv)
   } 
   
   if (fspath.length() == 0 || jpath.length() == 0 || pgidstr.length() == 0 ||
-    (type != "info" && type != "log" && type != "remove" && type != "export")) {
+    (type != "info" && type != "log" && type != "remove" && type != "export" && type != "import")) {
     cerr << "Invalid params" << std::endl;
     exit(1);
   }
@@ -321,6 +321,32 @@ int main(int argc, char **argv)
     finish_remove_pgs(fs, &next_removal_seq);
     cout << "Remove successful" << std::endl;
     goto out;
+  } else if (type == "import") {
+    bufferlist ebl;
+    bufferlist::iterator ebliter = ebl.begin();
+    int bytes;
+    pg_info_t info(pgid);
+    PG::IndexedLog log;
+
+    do {
+      bytes = ebl.read_fd(0, 4096);
+    } while(bytes > 0);
+
+    info.decode(ebliter);
+    log.decode(ebliter);
+ 
+    formatter->open_object_section("info");
+    info.dump(formatter);
+    formatter->close_section();
+    formatter->flush(cout);
+    cout << std::endl;
+    
+    formatter->open_object_section("log");
+    log.dump(formatter);
+    formatter->close_section();
+    formatter->flush(cout);
+    cout << std::endl;
+    exit(0);
   }
 
   r = fs->list_collections(ls);
