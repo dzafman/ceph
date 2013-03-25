@@ -38,10 +38,31 @@
 namespace po = boost::program_options;
 using namespace std;
 
+//XXX: This needs OSD function to generate
+hobject_t infos_oid(sobject_t("infos", CEPH_NOSNAP));
+hobject_t biginfo_oid, log_oid;
+
 static void invalid_path(string &path)
 {
   cout << "Invalid path to osd store specified: " << path << "\n";
   exit(1);
+}
+
+int get_log(ObjectStore *fs, coll_t coll, pg_t pgid, const pg_info_t &info,
+   PG::IndexedLog &log, pg_missing_t &missing, bool debug)
+{ 
+  PG::OndiskLog ondisklog;
+  try {
+    ostringstream oss;
+    PG::read_log(fs, coll, log_oid, info, ondisklog, log, missing, oss);
+    if (debug)
+      cerr << oss;
+  }
+  catch (const buffer::error &e) {
+    cout << "read_log threw exception error", e.what();
+    return 1;
+  }
+  return 0;
 }
 
 //Based on RemoveWQ::_process()
@@ -141,10 +162,10 @@ int initiate_new_remove_pg(ObjectStore *store, pg_t r_pgid, uint64_t *next_remov
     return ENOENT;
   }
 
-  cout << "remove " << coll_t::META_COLL << " " << OSD::make_pg_log_oid(r_pgid).oid << std::endl;
-  rmt->remove(coll_t::META_COLL, OSD::make_pg_log_oid(r_pgid));
-  cout << "remove " << coll_t::META_COLL << " " << OSD::make_pg_biginfo_oid(r_pgid).oid << std::endl;
-  rmt->remove(coll_t::META_COLL, OSD::make_pg_biginfo_oid(r_pgid));
+  cout << "remove " << coll_t::META_COLL << " " << log_oid.oid << std::endl;
+  rmt->remove(coll_t::META_COLL, log_oid);
+  cout << "remove " << coll_t::META_COLL << " " << biginfo_oid.oid << std::endl;
+  rmt->remove(coll_t::META_COLL, biginfo_oid);
 
   store->apply_transaction(*rmt);
 
@@ -153,7 +174,7 @@ int initiate_new_remove_pg(ObjectStore *store, pg_t r_pgid, uint64_t *next_remov
 
 int main(int argc, char **argv)
 {
-  string fspath, jpath, pgid, type;
+  string fspath, jpath, pgidstr, type;
   Formatter *formatter = new JSONFormatter(true);
 
   po::options_description desc("Allowed options");
@@ -163,7 +184,7 @@ int main(int argc, char **argv)
      "path to filestore directory, mandatory")
     ("journal-path", po::value<string>(&jpath),
      "path to journal, mandatory")
-    ("pgid", po::value<string>(&pgid),
+    ("pgid", po::value<string>(&pgidstr),
      "PG id, mandatory")
     ("type", po::value<string>(&type),
      "Type which is 'info' or 'log', mandatory")
@@ -208,7 +229,7 @@ int main(int argc, char **argv)
     return 1;
   } 
   
-  if (fspath.length() == 0 || jpath.length() == 0 || pgid.length() == 0 ||
+  if (fspath.length() == 0 || jpath.length() == 0 || pgidstr.length() == 0 ||
     (type != "info" && type != "log" && type != "remove")) {
     cerr << "Invalid params" << std::endl;
     exit(1);
@@ -264,13 +285,11 @@ int main(int argc, char **argv)
     invalid_path(fspath);
   }
 
-  pg_t arg_pgid;
-  if (!arg_pgid.parse(pgid.c_str())) {
-    cout << "Invalid pgid '" << pgid << "' specified" << std::endl;
+  pg_t pgid;
+  if (!pgid.parse(pgidstr.c_str())) {
+    cout << "Invalid pgid '" << pgidstr << "' specified" << std::endl;
     exit(1);
   }
-
-  int ret = 0;
 
   ObjectStore *fs = new FileStore(fspath, jpath);
   
@@ -284,69 +303,74 @@ int main(int argc, char **argv)
     return 1;
   }
 
-  uint64_t next_removal_seq = 0;	//My local seq
+  int ret = 0;
+  vector<coll_t> ls;
+  vector<coll_t>::iterator it;
+  log_oid = OSD::make_pg_log_oid(pgid);
+  biginfo_oid = OSD::make_pg_biginfo_oid(pgid);
 
   if (type == "remove") {
+    uint64_t next_removal_seq = 0;	//My local seq
     finish_remove_pgs(fs, &next_removal_seq);
-    int r = initiate_new_remove_pg(fs, arg_pgid, &next_removal_seq);
+    int r = initiate_new_remove_pg(fs, pgid, &next_removal_seq);
     if (r) {
-      cout << "PG '" << arg_pgid << "' not found" << std::endl;
-      exit(1);
+      cout << "PG '" << pgid << "' not found" << std::endl;
+      ret = 1;
+      goto out;
     }
     finish_remove_pgs(fs, &next_removal_seq);
     cout << "Remove successful" << std::endl;
-    exit(0);
+    goto out;
   }
 
-  int err_count = 0;
-  bool found = false;
-  vector<coll_t> ls;
   r = fs->list_collections(ls);
   if (r < 0) {
     cout << "failed to list pgs: " << cpp_strerror(-r) << std::endl;
     exit(1);
   }
 
-  for (vector<coll_t>::iterator it = ls.begin();
-       it != ls.end();
-       ++it) {
-    coll_t coll = *it;
-    pg_t pgid;
+  for (it = ls.begin(); it != ls.end(); ++it) {
     snapid_t snap;
-    if (!it->is_pg(pgid, snap)) {
+    pg_t tmppgid;
+
+    if (!it->is_pg(tmppgid, snap)) {
       continue;
     }
 
-    if (pgid != arg_pgid) {
+    if (tmppgid != pgid) {
       continue;
     }
     if (snap != CEPH_NOSNAP && vm.count("debug")) {
-      cerr << "skipping snapped dir " << coll
+      cerr << "skipping snapped dir " << *it
 	       << " (pg " << pgid << " snap " << snap << ")" << std::endl;
       continue;
     }
 
-    //XXX: This needs OSD function to generate
-    hobject_t infos_oid(sobject_t("infos", CEPH_NOSNAP));
+    //Found!
+    break;
+  }
+
+  if (it != ls.end()) {
+  
+    coll_t coll = *it;
+  
     bufferlist bl;
     epoch_t map_epoch = PG::peek_map_epoch(fs, coll, infos_oid, &bl);
     if (vm.count("debug"))
       cerr << "map_epoch " << map_epoch << std::endl;
 
-    found = true;
-
     pg_info_t info(pgid);
     map<epoch_t,pg_interval_t> past_intervals;
     hobject_t biginfo_oid = OSD::make_pg_biginfo_oid(pgid);
     interval_set<snapid_t> snap_collections;
-
+  
     __u8 struct_v;
-    int r = PG::read_info(fs, coll, bl, info, past_intervals, biginfo_oid,
+    r = PG::read_info(fs, coll, bl, info, past_intervals, biginfo_oid,
       infos_oid, snap_collections, struct_v);
     if (r < 0) {
       cout << "read_info error " << cpp_strerror(-r) << std::endl;
       ret = 1;
-      continue;
+      goto out;
     }
     if (vm.count("debug"))
       cerr << "struct_v " << (int)struct_v << std::endl;
@@ -357,24 +381,13 @@ int main(int argc, char **argv)
       formatter->close_section();
       formatter->flush(cout);
       cout << std::endl;
-      break;
     } else if (type == "log") {
-      PG::OndiskLog ondisklog;
       PG::IndexedLog log;
       pg_missing_t missing;
-      hobject_t logoid = OSD::make_pg_log_oid(pgid);
-      try {
-        ostringstream oss;
-        PG::read_log(fs, coll, logoid, info, ondisklog, log, missing, oss);
-        if (vm.count("debug"))
-          cerr << oss;
-      }
-      catch (const buffer::error &e) {
-        cout << "read_log threw exception error", e.what();
-        ret = 1;
-        break;
-      }
-      
+      ret = get_log(fs, coll, pgid, info, log, missing, vm.count("debug") != 0);
+      if (ret > 0)
+          goto out;
+  
       formatter->open_object_section("log");
       log.dump(formatter);
       formatter->close_section();
@@ -385,15 +398,13 @@ int main(int argc, char **argv)
       formatter->close_section();
       formatter->flush(cout);
       cout << std::endl;
-
     }
-  }
-
-  if (!found) {
-    cout << "PG '" << arg_pgid << "' not found" << std::endl;
+  } else {
+    cout << "PG '" << pgid << "' not found" << std::endl;
     ret = 1;
   }
 
+out:
   if (fs->umount() < 0) {
     cout << "umount failed" << std::endl;
     return 1;
