@@ -38,9 +38,207 @@
 namespace po = boost::program_options;
 using namespace std;
 
-//XXX: This needs OSD function to generate
-hobject_t infos_oid(sobject_t("infos", CEPH_NOSNAP));
+enum {
+    TYPE_NONE = 0,
+    TYPE_PG_BEGIN = 0x11111111,
+    TYPE_PG_END = 0x22222222,
+    TYPE_OBJECT_BEGIN = 0x33333333,
+    TYPE_OBJECT_END = 0x44444444,
+    TYPE_DATA = 0x55555555,
+    TYPE_SNAPS = 0x66666666,
+    TYPE_ATTRS = 0x77777777,
+    TYPE_OMAP = 0x88888888,
+    TYPE_PG_METADATA = 0x99999999,
+    TYPE_HDR_OMAP = 0xaaaaaaaa,
+};
+
+typedef uint32_t mytype_t;
+typedef uint32_t mymagic_t;
+typedef uint64_t mysize_t;
+const mysize_t max_read = 1024 * 1024;
+const mymagic_t themagic = 0xdeadbeef;
+const int fd_none = INT_MIN;
+
+//The first sizeof(super_header) bytes are a fixed
+//portion of the export output.  This includes the overall
+//version number, and size of header and footer.
+//THIS STRUCTURE CAN NOT CHANGE.  If it needs to a
+//the version can be bumped and then anything
+//can be added to the export format.
+struct super_header {
+   static const uint32_t super_magic = 0xcef4ace5;
+   static const uint32_t super_ver = 1;
+   uint32_t magic;
+   uint32_t version;
+   uint32_t header_size;
+   uint32_t footer_size;
+
+  void encode(bufferlist& bl) const {
+    ::encode(magic, bl);
+    ::encode(version, bl);
+    ::encode(header_size, bl);
+    ::encode(footer_size, bl);
+  }
+  void decode(bufferlist::iterator& bl) {
+    ::decode(magic, bl);
+    ::decode(version, bl);
+    ::decode(header_size, bl);
+    ::decode(footer_size, bl);
+  }
+};
+
+struct header {
+  mytype_t type;
+  mysize_t size;
+  header(mytype_t type, mysize_t size) :
+    type(type), size(size) { }
+
+  void encode(bufferlist& bl) const {
+    ENCODE_START(1, 1, bl);
+    ::encode(type, bl);
+    ::encode(size, bl);
+    ENCODE_FINISH(bl);
+  }
+  void decode(bufferlist::iterator& bl) {
+    DECODE_START(1, bl);
+    ::decode(type, bl);
+    ::decode(size, bl);
+    DECODE_FINISH(bl);
+  }
+};
+
+struct footer {
+  mymagic_t magic;
+  footer() : magic(themagic) { }
+
+  void encode(bufferlist& bl) const {
+    ENCODE_START(1, 1, bl);
+    ::encode(magic, bl);
+    ENCODE_FINISH(bl);
+  }
+  void decode(bufferlist::iterator& bl) {
+    DECODE_START(1, bl);
+    ::decode(magic, bl);
+    assert(magic == themagic);
+    DECODE_FINISH(bl);
+  }
+};
+
+struct pg_begin {
+  pg_t pgid;
+
+  pg_begin(pg_t pg): pgid(pg) { }
+
+  void encode(bufferlist& bl) const {
+    ENCODE_START(1, 1, bl);
+    ::encode(pgid, bl);
+    ENCODE_FINISH(bl);
+  }
+  void decode(bufferlist::iterator& bl) {
+    DECODE_START(1, bl);
+    ::decode(pgid, bl);
+    DECODE_FINISH(bl);
+  }
+};
+
+struct object_begin {
+  hobject_t hoid;
+  object_begin(hobject_t &hoid): hoid(hoid) { }
+
+  void encode(bufferlist& bl) const {
+    ENCODE_START(1, 1, bl);
+    ::encode(hoid, bl);
+    ENCODE_FINISH(bl);
+  }
+  void decode(bufferlist::iterator& bl) {
+    DECODE_START(1, bl);
+    ::decode(hoid, bl);
+    DECODE_FINISH(bl);
+  }
+};
+
+struct data {
+  uint64_t offset;
+  uint64_t len;
+  bufferlist databl;
+  data(uint64_t offset, uint64_t len, bufferlist bl):
+     offset(offset), len(len), databl(bl) { }
+
+  void encode(bufferlist& bl) const {
+    ENCODE_START(1, 1, bl);
+    ::encode(offset, bl);
+    ::encode(len, bl);
+    ::encode(databl, bl);
+    ENCODE_FINISH(bl);
+  }
+  void decode(bufferlist::iterator& bl) {
+    DECODE_START(1, bl);
+    ::decode(offset, bl);
+    ::decode(len, bl);
+    ::decode(databl, bl);
+    DECODE_FINISH(bl);
+  }
+};
+
+struct omap_section {
+  bufferlist hdr;
+  map<string, bufferlist> omap;
+  omap_section(bufferlist hdr, map<string, bufferlist> omap) :
+    hdr(hdr), omap(omap) { }
+
+  void encode(bufferlist& bl) const {
+    ENCODE_START(1, 1, bl);
+    ::encode(hdr, bl);
+    ::encode(omap, bl);
+    ENCODE_FINISH(bl);
+  }
+  void decode(bufferlist::iterator& bl) {
+    DECODE_START(1, bl);
+    ::decode(hdr, bl);
+    ::decode(omap, bl);
+    DECODE_FINISH(bl);
+  }
+};
+
+struct metadata_section {
+  epoch_t map_epoch;
+  pg_info_t info;
+  pg_log_t log;
+  bufferlist collattr;
+  metadata_section(epoch_t map_epoch, pg_info_t info, pg_log_t log,
+      bufferlist collattr):
+    map_epoch(map_epoch), info(info), log(log), collattr(collattr) { }
+
+  void encode(bufferlist& bl) const {
+    ENCODE_START(1, 1, bl);
+    ::encode(map_epoch, bl);
+    ::encode(info, bl);
+    ::encode(log, bl);
+    ::encode(collattr, bl);
+    ENCODE_FINISH(bl);
+  }
+  void decode(bufferlist::iterator& bl) {
+    DECODE_START(1, bl);
+    ::decode(map_epoch, bl);
+    ::decode(info, bl);
+    ::decode(log, bl);
+    ::decode(collattr, bl);
+    DECODE_FINISH(bl);
+  }
+};
+
+hobject_t infos_oid;
 hobject_t biginfo_oid, log_oid;
+
+int file_fd = fd_none;
+bool debug;
+
+static void
+corrupt()
+{
+  cout << "Corrupt input for import" << std::endl;
+  exit(1);
+}
 
 static void invalid_path(string &path)
 {
@@ -49,14 +247,14 @@ static void invalid_path(string &path)
 }
 
 int get_log(ObjectStore *fs, coll_t coll, pg_t pgid, const pg_info_t &info,
-   PG::IndexedLog &log, pg_missing_t &missing, bool debug)
+   PG::IndexedLog &log, pg_missing_t &missing)
 { 
   PG::OndiskLog ondisklog;
   try {
     ostringstream oss;
     PG::read_log(fs, coll, log_oid, info, ondisklog, log, missing, oss);
-    if (debug)
-      cerr << oss;
+    if (debug && oss.str().size())
+      cerr << oss.str() << std::endl;
   }
   catch (const buffer::error &e) {
     cout << "read_log threw exception error", e.what();
@@ -172,9 +370,421 @@ int initiate_new_remove_pg(ObjectStore *store, pg_t r_pgid, uint64_t *next_remov
   return 0;
 }
 
+int write_info(ObjectStore::Transaction &t, epoch_t epoch, pg_info_t &info)
+{
+  //Empty for this
+  interval_set<snapid_t> snap_collections; // obsolete
+  map<epoch_t,pg_interval_t> past_intervals;
+  coll_t coll(info.pgid);
+
+  return PG::_write_info(t, epoch,
+    info, coll,
+    past_intervals,
+    snap_collections,
+    infos_oid,
+    0,      //Get version (struct_v)
+    true);
+}
+
+void write_log(ObjectStore::Transaction &t, pg_log_t &log)
+{
+  map<eversion_t, hobject_t> divergent_priors;
+  PG::_write_log(t, log, log_oid, divergent_priors);
+}
+
+void write_pg(ObjectStore::Transaction &t, epoch_t epoch, pg_info_t &info, pg_log_t &log)
+{
+  write_info(t, epoch, info);
+  write_log(t, log);
+}
+
+int export_file(ObjectStore *store, coll_t cid, hobject_t &obj)
+{
+  struct stat st;
+  mysize_t total;
+  ostringstream objname;
+  bufferlist ftbl;
+  footer ft;
+
+  int ret = store->stat(cid, obj, &st);
+  if (ret < 0)
+    return ret;
+
+  objname << obj;
+  if (debug && file_fd != STDOUT_FILENO)
+    cout << "objname=" << objname.str() << std::endl;
+
+  total = st.st_size;
+  if (debug && file_fd != STDOUT_FILENO)
+    cout << "size=" << total << std::endl;
+
+  bufferlist obl, hbl, fbl;
+  object_begin objb(obj);
+  objb.encode(obl);
+
+  header hdr(TYPE_OBJECT_BEGIN, obl.length());
+  hdr.encode(hbl);
+  ft.encode(fbl);
+
+  hbl.write_fd(file_fd);
+  obl.write_fd(file_fd);
+  fbl.write_fd(file_fd);
+
+  uint64_t offset = 0;
+  bufferlist rawdatabl, databl;
+  while(total > 0) {
+    rawdatabl.clear();
+    databl.clear();
+    mysize_t len = max_read;
+    if (len > total)
+      len = total;
+
+    ret = store->read(cid, obj, offset, len, rawdatabl);
+    if (ret < 0)
+      return ret;
+    if (ret == 0)
+      return -EINVAL;
+    total -= ret;
+
+    data dblock(offset, len, rawdatabl);
+    dblock.encode(databl);
+
+    hbl.clear();
+    header dhdr(TYPE_DATA, databl.length());
+    dhdr.encode(hbl);
+
+    hbl.write_fd(file_fd);
+    databl.write_fd(file_fd);
+    fbl.write_fd(file_fd);
+
+    if (debug && file_fd != STDOUT_FILENO)
+      cout << "data section offset=" << offset << " len=" << len << std::endl;
+    offset += ret;
+  }
+
+  //Handle snapshots for this object
+  databl.clear();
+  store->getattr(cid, obj, SS_ATTR, databl);
+  if (databl.length() > 0) {
+    hbl.clear();
+    header hdr(TYPE_SNAPS, databl.length());
+    hdr.encode(hbl);
+
+    hbl.write_fd(file_fd);
+    databl.write_fd(file_fd);
+    fbl.write_fd(file_fd);
+
+    if (debug && file_fd != STDOUT_FILENO)
+      cout << "snapshot data length " << databl.length() << std::endl;
+  }
+
+  //Handle attrs for this object
+  databl.clear();
+  store->getattr(cid, obj, OI_ATTR, databl);
+  if (databl.length() > 0) {
+    hbl.clear();
+    header hdr(TYPE_ATTRS, databl.length());
+    hdr.encode(hbl);
+
+    hbl.write_fd(file_fd);
+    databl.write_fd(file_fd);
+    fbl.write_fd(file_fd);
+
+    if (debug && file_fd != STDOUT_FILENO)
+      cout << "attrs data length " << databl.length() << std::endl;
+  }
+
+  //Handle omap information
+  databl.clear();
+  bufferlist hdrbuf;
+  map<string, bufferlist> out;
+  ret = store->omap_get(cid, obj, &hdrbuf, &out);
+  if (ret < 0)
+    return ret;
+
+  omap_section oms(hdrbuf, out);
+  oms.encode(databl);
+  if (databl.length() > 0) {
+    header hdr(TYPE_OMAP, databl.length());
+    hbl.clear();
+    hdr.encode(hbl);
+
+    hbl.write_fd(file_fd);
+    databl.write_fd(file_fd);
+    fbl.write_fd(file_fd);
+
+    if (debug && file_fd != STDOUT_FILENO)
+      cout << "omap data length " << databl.length() << std::endl;
+  }
+
+  header ehdr(TYPE_OBJECT_END, 0);
+  hbl.clear();
+  ehdr.encode(hbl);
+  hbl.write_fd(file_fd);
+
+  return 0;
+}
+
+int export_files(ObjectStore *store, coll_t coll)
+{
+  vector<hobject_t> objects;
+  hobject_t max;
+  int r = 0;
+
+  while (!max.is_max()) {
+    r = store->collection_list_partial(coll, max, 200, 300, 0, &objects, &max);
+    if (r < 0)
+      return r;
+    for (vector<hobject_t>::iterator i = objects.begin();
+	 i != objects.end();
+	 ++i) {
+      r = export_file(store, coll, *i);
+      if (r < 0)
+        return r;
+    }
+  }
+  return 0;
+}
+
+void get_section(bufferlist &ebl, bufferlist::iterator &ebliter)
+{
+  int bytes;
+  mysize_t size;
+
+  bytes = ebl.read_fd(file_fd, sizeof(size));
+  if (bytes != sizeof(size))
+    corrupt();
+
+  ::decode(size, ebliter);
+
+  do {
+    mysize_t read_len = size;
+    if (read_len > max_read)
+      read_len = max_read;
+    
+    bytes = ebl.read_fd(file_fd, read_len);
+    if (bytes == 0)
+      corrupt();
+    size -= bytes;
+  } while(size > 0);
+  assert(size == 0);
+}
+
+int import_files(ObjectStore *store, coll_t coll)
+{
+  do {
+    bufferlist ebl;
+    bufferlist::iterator ebliter = ebl.begin();
+    mysize_t hobjdatlen;
+    mysize_t bytes;
+    hobject_t hobj;
+    ObjectStore::Transaction tran;
+    ObjectStore::Transaction *t = &tran;
+  
+    bytes = ebl.read_fd(file_fd, sizeof(hobjdatlen));
+    //See if are at EOF
+    if (bytes == 0)
+      break;
+    if (bytes != sizeof(hobjdatlen))
+      corrupt();
+  
+    ::decode(hobjdatlen, ebliter);
+  
+    mysize_t read_len = hobjdatlen;
+    if (read_len > max_read)
+      read_len = max_read;
+  
+    bytes = ebl.read_fd(file_fd, read_len);
+    if (bytes != read_len)
+      corrupt();
+  
+    ::decode(hobj, ebliter);
+  
+    t->touch(coll, hobj);
+    store->apply_transaction(*t);
+
+    if (debug) {
+      ostringstream objname;
+      objname << hobj;
+      cout << std::endl;
+      cout << "filename=" << objname.str() << std::endl;
+    }
+  
+    //CREATE NEW FILE AND WRITE REST OF ebl
+    bufferptr bp = ebliter.get_current_ptr();
+    if (debug)
+      cout << "data=" << string(bp.c_str(), bp.length());
+    mysize_t size = bp.length();
+    uint64_t off = 0;
+    bufferlist databl;
+    databl.push_front(bp);
+    t->write(coll, hobj, off, size,  databl);
+    off += size;
+  
+    hobjdatlen -= bytes;
+  
+    while(hobjdatlen > 0) {
+      bufferlist buf;
+      mysize_t read_len = hobjdatlen;
+      if (read_len > max_read)
+        read_len = max_read;
+  
+      bytes = buf.read_fd(file_fd, read_len);
+      if (bytes == 0)
+        corrupt();
+      hobjdatlen -= bytes;
+      assert(bytes == buf.length());
+  
+      //Write buf to file
+      if (debug)
+        cout << string(buf.c_str(), bytes);
+      t->write(coll, hobj, off, bytes,  buf);
+      size += bytes;
+      off += bytes;
+    }
+    if (debug) {
+      cout << std::endl;
+      cout << "size=" << size << std::endl;
+    }
+
+    //Get snapshots
+    {
+      bufferlist bl, vbl;
+      bufferlist::iterator bliter = bl.begin();
+
+      get_section(bl, bliter);
+
+      bufferptr bp = bliter.get_current_ptr();
+      vbl.push_front(bp);
+
+      t->setattr(coll, hobj, SS_ATTR, vbl);
+    }
+
+    //Get attributes
+    {
+      bufferlist bl, vbl;
+      bufferlist::iterator bliter = bl.begin();
+
+      get_section(bl, bliter);
+  
+      bufferptr bp = bliter.get_current_ptr();
+      vbl.push_front(bp);
+
+      t->setattr(coll, hobj, OI_ATTR, vbl);
+    }
+
+    {
+      bufferlist ebl;
+      bufferlist::iterator ebliter = ebl.begin();
+      bufferlist hdrbuf;
+      map<string, bufferlist> out;
+  
+      get_section(ebl, ebliter);
+
+      ::decode(hdrbuf, ebliter);
+      if (debug)
+        cout << "header=" << string(hdrbuf.c_str(), hdrbuf.length())
+          << std::endl;
+      ::decode(out, ebliter);
+      for (map<string, bufferlist>::iterator i = out.begin();
+         i != out.end();
+         ++i) {
+        if (debug)
+          cout << "key=" << i->first 
+             << " val=" << string(i->second.c_str(), i->second.length())
+             << std::endl;
+      }
+    }
+    store->apply_transaction(*t);
+  } while(true);
+
+  return 0;
+}
+
+//Write super_header with its fixed 16 byte length
+void write_super()
+{
+  bufferlist superbl;
+  super_header sh;
+  footer ft;
+
+  header hdr(TYPE_NONE, 0);
+  hdr.encode(superbl);
+
+  sh.magic = super_header::super_magic;
+  sh.version = super_header::super_ver;
+  sh.header_size = superbl.length();
+  superbl.clear();
+  ft.encode(superbl);
+  sh.footer_size = superbl.length();
+  superbl.clear();
+
+  sh.encode(superbl);
+  assert(sizeof(super_header) == superbl.length());
+  superbl.write_fd(file_fd);
+}
+
+int do_export(ObjectStore *fs, coll_t coll, pg_t pgid, pg_info_t &info,
+    epoch_t map_epoch)
+{
+  PG::IndexedLog log;
+  pg_missing_t missing;
+  bufferlist collattrbl;
+  bufferlist ftbl;
+  footer ft;
+
+  int ret = get_log(fs, coll, pgid, info, log, missing);
+  if (ret > 0)
+      return ret;
+
+  ret = fs->collection_getattr(coll, "info", collattrbl);
+  if (ret < 0)
+    return ret;
+
+  write_super();
+
+  bufferlist pgbl, hbl, fbl;
+  pg_begin pgb(pgid);
+  pgb.encode(pgbl);
+
+  header hdr(TYPE_PG_BEGIN, pgbl.length());
+  hdr.encode(hbl);
+
+  ft.encode(fbl);
+
+  //Before 
+
+  hbl.write_fd(file_fd);
+  pgbl.write_fd(file_fd);
+  fbl.write_fd(file_fd);
+  
+  export_files(fs, coll);
+
+  bufferlist metabl;
+  metadata_section ms(map_epoch, info, log, collattrbl);
+
+  ms.encode(metabl);
+
+  hbl.clear();
+  header mhdr(TYPE_PG_METADATA, metabl.length());
+  mhdr.encode(hbl);
+  
+  hbl.write_fd(file_fd);
+  metabl.write_fd(file_fd);
+  fbl.write_fd(file_fd);
+
+  header ehdr(TYPE_PG_END, 0);
+  hbl.clear();
+  ehdr.encode(hbl);
+  hbl.write_fd(file_fd);
+
+  return 0;
+}
+
+
 int main(int argc, char **argv)
 {
-  string fspath, jpath, pgidstr, type;
+  string fspath, jpath, pgidstr, type, file;
   Formatter *formatter = new JSONFormatter(true);
 
   po::options_description desc("Allowed options");
@@ -188,6 +798,8 @@ int main(int argc, char **argv)
      "PG id, mandatory")
     ("type", po::value<string>(&type),
      "Type which is 'info' or 'log', mandatory")
+    ("file", po::value<string>(&file),
+     "path of file to export or import")
     ("debug", "Enable diagnostic output to stderr")
     ;
 
@@ -218,20 +830,51 @@ int main(int argc, char **argv)
 	 << desc << std::endl;
     return 1;
   } 
-  if (!vm.count("pgid")) {
-    cout << "Must provide pgid" << std::endl
-	 << desc << std::endl;
-    return 1;
-  } 
   if (!vm.count("type")) {
     cout << "Must provide type ('info' or 'log')" << std::endl
 	 << desc << std::endl;
     return 1;
   } 
+  if (type != "import" && !vm.count("pgid")) {
+    cout << "Must provide pgid" << std::endl
+	 << desc << std::endl;
+    return 1;
+  } 
+
+  file_fd = fd_none;
+  if (type == "export") {
+    if (!vm.count("file")) {
+      file_fd = STDOUT_FILENO;
+    } else {
+      file_fd = open(file.c_str(), O_WRONLY|O_CREAT|O_TRUNC, 0666);
+    }
+  } else if (type == "import") {
+    if (!vm.count("file")) {
+      file_fd = STDIN_FILENO;
+    } else {
+      file_fd = open(file.c_str(), O_RDONLY);
+    }
+  }
+
+  if (vm.count("file") && file_fd == fd_none) {
+    cout << "--file option only applies to import or export" << std::endl;
+    return 1;
+  }
+
+  if (file_fd != fd_none && file_fd < 0) {
+    perror("open");
+    return 1;
+  }
   
-  if (fspath.length() == 0 || jpath.length() == 0 || pgidstr.length() == 0 ||
-    (type != "info" && type != "log" && type != "remove")) {
+  if ((fspath.length() == 0 || jpath.length() == 0) ||
+      (type != "info" && type != "log" && type != "remove" && type != "export" && type != "import") ||
+      (type != "import" && pgidstr.length() == 0)) {
     cerr << "Invalid params" << std::endl;
+    exit(1);
+  }
+
+  if (type == "import" && pgidstr.length()) {
+    cerr << "--pgid option invalid with import" << std::endl;
     exit(1);
   }
 
@@ -247,8 +890,11 @@ int main(int argc, char **argv)
 
   //Suppress derr() output to stderr by default
   if (!vm.count("debug")) {
-    close(2);
+    close(STDERR_FILENO);
     (void)open("/dev/null", O_WRONLY);
+    debug = false;
+  } else {
+    debug = true;
   }
 
   global_init(
@@ -286,7 +932,7 @@ int main(int argc, char **argv)
   }
 
   pg_t pgid;
-  if (!pgid.parse(pgidstr.c_str())) {
+  if (pgidstr.length() && !pgid.parse(pgidstr.c_str())) {
     cout << "Invalid pgid '" << pgidstr << "' specified" << std::endl;
     exit(1);
   }
@@ -306,6 +952,86 @@ int main(int argc, char **argv)
   int ret = 0;
   vector<coll_t> ls;
   vector<coll_t>::iterator it;
+  infos_oid = OSD::make_infos_oid();
+
+  if (type == "import") {
+    bufferlist ebl;
+    bufferlist::iterator ebliter = ebl.begin();
+    pg_info_t info;
+    PG::IndexedLog log;
+    epoch_t epoch;
+
+#if 0
+    if (getuid() != 0 || getgid() != 0) {
+      cout << "Please use sudo to import" << std::endl;
+      exit(1);
+    }
+#endif
+
+    get_section(ebl, ebliter);
+
+    ::decode(epoch, ebliter);
+
+    info.decode(ebliter);
+    pgid = info.pgid;
+    coll_t coll(pgid);
+    cout << "Importing pgid " << pgid << std::endl;
+    log_oid = OSD::make_pg_log_oid(pgid);
+    biginfo_oid = OSD::make_pg_biginfo_oid(pgid);
+
+    log.decode(ebliter);
+ 
+    //XXX: Check for PG already present.  Require use to remove before import
+
+    //XXX: Should somehow write everything to a temporary location
+
+    ObjectStore::Transaction *t = new ObjectStore::Transaction;
+
+    write_pg(*t, epoch, info, log);
+    fs->apply_transaction(*t);
+    delete t;
+
+    t = new ObjectStore::Transaction;
+    t->create_collection(coll);
+    fs->apply_transaction(*t);
+    delete t;
+
+    {
+      bufferlist ebl, infobl;
+      bufferlist::iterator ebliter = ebl.begin();
+      
+      get_section(ebl, ebliter);
+
+      ebliter.copy(ebliter.get_remaining(), infobl);
+
+      ObjectStore::Transaction *t = new ObjectStore::Transaction;
+      t->collection_setattr(coll, "info", infobl);
+
+      fs->apply_transaction(*t);
+      delete t;
+    }
+
+    import_files(fs, coll);
+
+    //XXX: Rename pg into place?  I don't think this can be a single rename
+
+#if DIAGNOSTIC
+    cout << "epoch " << epoch << std::endl;
+    formatter->open_object_section("info");
+    info.dump(formatter);
+    formatter->close_section();
+    formatter->flush(cout);
+    cout << std::endl;
+    
+    formatter->open_object_section("log");
+    log.dump(formatter);
+    formatter->close_section();
+    formatter->flush(cout);
+    cout << std::endl;
+#endif
+    goto out;
+  }
+
   log_oid = OSD::make_pg_log_oid(pgid);
   biginfo_oid = OSD::make_pg_biginfo_oid(pgid);
 
@@ -340,7 +1066,7 @@ int main(int argc, char **argv)
     if (tmppgid != pgid) {
       continue;
     }
-    if (snap != CEPH_NOSNAP && vm.count("debug")) {
+    if (snap != CEPH_NOSNAP && debug) {
       cerr << "skipping snapped dir " << *it
 	       << " (pg " << pgid << " snap " << snap << ")" << std::endl;
       continue;
@@ -350,13 +1076,14 @@ int main(int argc, char **argv)
     break;
   }
 
+  epoch_t map_epoch;
   if (it != ls.end()) {
   
     coll_t coll = *it;
   
     bufferlist bl;
-    epoch_t map_epoch = PG::peek_map_epoch(fs, coll, infos_oid, &bl);
-    if (vm.count("debug"))
+    map_epoch = PG::peek_map_epoch(fs, coll, infos_oid, &bl);
+    if (debug)
       cerr << "map_epoch " << map_epoch << std::endl;
 
     pg_info_t info(pgid);
@@ -372,10 +1099,12 @@ int main(int argc, char **argv)
       ret = 1;
       goto out;
     }
-    if (vm.count("debug"))
+    if (debug)
       cerr << "struct_v " << (int)struct_v << std::endl;
 
-    if (type == "info") {
+    if (type == "export") {
+      ret = do_export(fs, coll, pgid, info, map_epoch);
+    } else if (type == "info") {
       formatter->open_object_section("info");
       info.dump(formatter);
       formatter->close_section();
@@ -384,7 +1113,7 @@ int main(int argc, char **argv)
     } else if (type == "log") {
       PG::IndexedLog log;
       pg_missing_t missing;
-      ret = get_log(fs, coll, pgid, info, log, missing, vm.count("debug") != 0);
+      ret = get_log(fs, coll, pgid, info, log, missing);
       if (ret > 0)
           goto out;
   
