@@ -327,14 +327,17 @@ int main(int argc, char **argv)
     int bytes;
     pg_info_t info(pgid);
     PG::IndexedLog log;
+    epoch_t epoch;
 
     do {
       bytes = ebl.read_fd(0, 4096);
     } while(bytes > 0);
 
+    ::decode(epoch, ebliter);
     info.decode(ebliter);
     log.decode(ebliter);
  
+    cout << "epoch " << epoch << std::endl;
     formatter->open_object_section("info");
     info.dump(formatter);
     formatter->close_section();
@@ -376,12 +379,13 @@ int main(int argc, char **argv)
     break;
   }
 
+  epoch_t map_epoch;
   if (it != ls.end()) {
   
     coll_t coll = *it;
   
     bufferlist bl;
-    epoch_t map_epoch = PG::peek_map_epoch(fs, coll, infos_oid, &bl);
+    map_epoch = PG::peek_map_epoch(fs, coll, infos_oid, &bl);
     if (vm.count("debug"))
       cerr << "map_epoch " << map_epoch << std::endl;
 
@@ -410,6 +414,7 @@ int main(int argc, char **argv)
       if (ret > 0)
           goto out;
   
+      ::encode(map_epoch, ebl);
       info.encode(ebl);
       log.encode(ebl);
       ebl.write_fd(1);
