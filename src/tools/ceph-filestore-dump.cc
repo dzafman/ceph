@@ -172,6 +172,43 @@ int initiate_new_remove_pg(ObjectStore *store, pg_t r_pgid, uint64_t *next_remov
   return 0;
 }
 
+void write_info(ObjectStore::Transaction &t, epoch_t epoch, pg_info_t &info, bool debug)
+{
+  //Empty for this
+  interval_set<snapid_t> snap_collections; // obsolete
+  map<epoch_t,pg_interval_t> past_intervals;
+
+  // info.  store purged_snaps separately.
+  interval_set<snapid_t> purged_snaps;
+  map<string,bufferlist> v;
+  ::encode(epoch, v[PG::get_epoch_key(info.pgid)]);
+  purged_snaps.swap(info.purged_snaps);
+  ::encode(info, v[PG::get_info_key(info.pgid)]);
+  purged_snaps.swap(info.purged_snaps);
+
+  // potentially big stuff
+  bufferlist& bigbl = v[PG::get_biginfo_key(info.pgid)];
+  ::encode(past_intervals, bigbl);
+  ::encode(snap_collections, bigbl);
+  ::encode(info.purged_snaps, bigbl);
+  if (debug)
+    cout << "write_info bigbl " << bigbl.length() << std::endl;
+
+  t.omap_setkeys(coll_t::META_COLL, infos_oid, v);
+}
+
+void write_log(ObjectStore::Transaction &t, pg_log_t &log)
+{
+  map<eversion_t, hobject_t> divergent_priors;
+  PG::_write_log(t, log, log_oid, divergent_priors);
+}
+
+void write_pg(ObjectStore::Transaction &t, epoch_t epoch, pg_info_t &info, pg_log_t &log, bool debug)
+{
+  write_info(t, epoch, info, debug);
+  write_log(t, log);
+}
+
 int main(int argc, char **argv)
 {
   string fspath, jpath, pgidstr, type;
@@ -329,6 +366,10 @@ int main(int argc, char **argv)
     PG::IndexedLog log;
     epoch_t epoch;
 
+    //XXX: Check for PG already present.  Require use to remove before import
+
+    //XXX: Should read only enough bytes to get info and log
+    //Put byte count into file, so we can read the right amount.
     do {
       bytes = ebl.read_fd(0, 4096);
     } while(bytes > 0);
@@ -337,6 +378,15 @@ int main(int argc, char **argv)
     info.decode(ebliter);
     log.decode(ebliter);
  
+    //XXX: Should somehow write everything to a temporary location
+    ObjectStore::Transaction *t = new ObjectStore::Transaction;
+
+    write_pg(*t, epoch, info, log, vm.count("debug") != 0);
+    fs->apply_transaction(*t);
+
+    //XXX: Rename pg into place.  I don't think this can be a single rename
+
+#if DIAGNOSTIC
     cout << "epoch " << epoch << std::endl;
     formatter->open_object_section("info");
     info.dump(formatter);
@@ -349,6 +399,7 @@ int main(int argc, char **argv)
     formatter->close_section();
     formatter->flush(cout);
     cout << std::endl;
+#endif
     exit(0);
   }
 
