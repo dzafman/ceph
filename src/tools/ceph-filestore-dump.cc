@@ -365,19 +365,25 @@ int main(int argc, char **argv)
     pg_info_t info(pgid);
     PG::IndexedLog log;
     epoch_t epoch;
+    size_t size;
 
-    //XXX: Check for PG already present.  Require use to remove before import
+    bytes = ebl.read_fd(0, sizeof(size));
+    assert(bytes == sizeof(size));
 
-    //XXX: Should read only enough bytes to get info and log
-    //Put byte count into file, so we can read the right amount.
+    ::decode(size, ebliter);
+
     do {
       bytes = ebl.read_fd(0, 4096);
-    } while(bytes > 0);
+      size -= bytes;
+    } while(size > 0);
+    assert(size == 0);
 
     ::decode(epoch, ebliter);
     info.decode(ebliter);
     log.decode(ebliter);
  
+    //XXX: Check for PG already present.  Require use to remove before import
+
     //XXX: Should somehow write everything to a temporary location
     ObjectStore::Transaction *t = new ObjectStore::Transaction;
 
@@ -459,7 +465,8 @@ int main(int argc, char **argv)
     if (type == "export") {
       PG::IndexedLog log;
       pg_missing_t missing;
-      bufferlist ebl;
+      bufferlist ebl, sizebl;
+      size_t size;
   
       ret = get_log(fs, coll, pgid, info, log, missing, vm.count("debug") != 0);
       if (ret > 0)
@@ -468,6 +475,11 @@ int main(int argc, char **argv)
       ::encode(map_epoch, ebl);
       info.encode(ebl);
       log.encode(ebl);
+      size = ebl.length();
+      ::encode(size, sizebl);
+      assert(sizebl.length() == sizeof(size));
+      
+      sizebl.write_fd(1);
       ebl.write_fd(1);
     } else if (type == "info") {
       formatter->open_object_section("info");
