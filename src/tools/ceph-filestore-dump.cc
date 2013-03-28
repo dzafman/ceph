@@ -39,10 +39,13 @@ namespace po = boost::program_options;
 using namespace std;
 
 const size_t max_read = 1024 * 1024;
+const int fd_none = INT_MIN;
 
 //XXX: This needs OSD function to generate
 hobject_t infos_oid(sobject_t("infos", CEPH_NOSNAP));
 hobject_t biginfo_oid, log_oid;
+
+int file_fd = fd_none;
 
 static void
 corrupt()
@@ -220,7 +223,7 @@ void write_pg(ObjectStore::Transaction &t, epoch_t epoch, pg_info_t &info, pg_lo
 
 int main(int argc, char **argv)
 {
-  string fspath, jpath, pgidstr, type;
+  string fspath, jpath, pgidstr, type, file;
   Formatter *formatter = new JSONFormatter(true);
 
   po::options_description desc("Allowed options");
@@ -234,6 +237,8 @@ int main(int argc, char **argv)
      "PG id, mandatory")
     ("type", po::value<string>(&type),
      "Type which is 'info' or 'log', mandatory")
+    ("file", po::value<string>(&file),
+     "path of file to export or import")
     ("debug", "Enable diagnostic output to stderr")
     ;
 
@@ -274,6 +279,31 @@ int main(int argc, char **argv)
 	 << desc << std::endl;
     return 1;
   } 
+
+  file_fd = fd_none;
+  if (type == "export") {
+    if (!vm.count("file")) {
+      file_fd = STDOUT_FILENO;
+    } else {
+      file_fd = open(file.c_str(), O_WRONLY|O_CREAT|O_TRUNC, 0666);
+    }
+  } else if (type == "import") {
+    if (!vm.count("file")) {
+      file_fd = STDIN_FILENO;
+    } else {
+      file_fd = open(file.c_str(), O_RDONLY);
+    }
+  }
+
+  if (vm.count("file") && file_fd == fd_none) {
+    cout << "--file option only applies to import or export" << std::endl;
+    return 1;
+  }
+
+  if (file_fd != fd_none && file_fd < 0) {
+    perror("open");
+    return 1;
+  }
   
   if (fspath.length() == 0 || jpath.length() == 0 || pgidstr.length() == 0 ||
     (type != "info" && type != "log" && type != "remove" && type != "export" && type != "import")) {
@@ -293,7 +323,7 @@ int main(int argc, char **argv)
 
   //Suppress derr() output to stderr by default
   if (!vm.count("debug")) {
-    close(2);
+    close(STDERR_FILENO);
     (void)open("/dev/null", O_WRONLY);
   }
 
@@ -376,7 +406,7 @@ int main(int argc, char **argv)
     epoch_t epoch;
     size_t size;
 
-    bytes = ebl.read_fd(0, sizeof(size));
+    bytes = ebl.read_fd(file_fd, sizeof(size));
     if (bytes != sizeof(size))
       corrupt();
 
@@ -387,7 +417,7 @@ int main(int argc, char **argv)
       if (read_len > max_read)
         read_len = max_read;
       
-      bytes = ebl.read_fd(0, read_len);
+      bytes = ebl.read_fd(file_fd, read_len);
       if (bytes == 0)
         corrupt();
       size -= bytes;
@@ -495,8 +525,8 @@ int main(int argc, char **argv)
       ::encode(size, sizebl);
       assert(sizebl.length() == sizeof(size));
       
-      sizebl.write_fd(1);
-      ebl.write_fd(1);
+      sizebl.write_fd(file_fd);
+      ebl.write_fd(file_fd);
     } else if (type == "info") {
       formatter->open_object_section("info");
       info.dump(formatter);
