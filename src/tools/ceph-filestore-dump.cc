@@ -38,9 +38,18 @@
 namespace po = boost::program_options;
 using namespace std;
 
+const size_t max_read = 1024 * 1024;
+
 //XXX: This needs OSD function to generate
 hobject_t infos_oid(sobject_t("infos", CEPH_NOSNAP));
 hobject_t biginfo_oid, log_oid;
+
+static void
+corrupt()
+{
+  cout << "Corrupt input for import" << std::endl;
+  exit(1);
+}
 
 static void invalid_path(string &path)
 {
@@ -368,12 +377,19 @@ int main(int argc, char **argv)
     size_t size;
 
     bytes = ebl.read_fd(0, sizeof(size));
-    assert(bytes == sizeof(size));
+    if (bytes != sizeof(size))
+      corrupt();
 
     ::decode(size, ebliter);
 
     do {
-      bytes = ebl.read_fd(0, 4096);
+      size_t read_len = size;
+      if (read_len > max_read)
+        read_len = max_read;
+      
+      bytes = ebl.read_fd(0, read_len);
+      if (bytes == 0)
+        corrupt();
       size -= bytes;
     } while(size > 0);
     assert(size == 0);
