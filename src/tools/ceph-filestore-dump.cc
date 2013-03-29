@@ -410,6 +410,11 @@ int main(int argc, char **argv)
     epoch_t epoch;
     size_t size;
 
+    if (getuid() != 0 || getgid() != 0) {
+      cout << "Please use sudo to import" << std::endl;
+      exit(1);
+    }
+
     bytes = ebl.read_fd(file_fd, sizeof(size));
     if (bytes != sizeof(size))
       corrupt();
