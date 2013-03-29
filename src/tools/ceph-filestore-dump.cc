@@ -291,6 +291,61 @@ int export_files(ObjectStore *store, coll_t coll)
   return 0;
 }
 
+int import_files(ObjectStore *store, coll_t coll)
+{
+  do {
+    string filename;
+    bufferlist ebl;
+    bufferlist::iterator ebliter = ebl.begin();
+    size_t total;
+    size_t bytes;
+  
+    bytes = ebl.read_fd(file_fd, sizeof(total));
+    //See if are at EOF
+    if (bytes == 0)
+      break;
+    if (bytes != sizeof(total))
+      corrupt();
+  
+    ::decode(total, ebliter);
+  
+    size_t read_len = total;
+    if (read_len > max_read)
+      read_len = max_read;
+  
+    bytes = ebl.read_fd(file_fd, read_len);
+    if (bytes != read_len)
+      corrupt();
+  
+    ::decode(filename, ebliter);
+  
+    cout << "filename=" << filename << std::endl;
+    cout << "size=" << total - filename.length() - sizeof(__u32) << std::endl;
+  
+    //CREATE NEW FILE AND WRITE REST OF ebl
+  
+    total -= bytes;
+  
+    while(total > 0) {
+      bufferlist buf;
+      size_t read_len = total;
+      if (read_len > max_read)
+        read_len = max_read;
+  
+      bytes = buf.read_fd(file_fd, read_len);
+      if (bytes == 0)
+        corrupt();
+      total -= bytes;
+  
+      //Write buf to file
+    }
+  
+    //Close
+  } while(true);
+
+  return 0;
+}
+
 int main(int argc, char **argv)
 {
   string fspath, jpath, pgidstr, type, file;
@@ -514,7 +569,9 @@ int main(int argc, char **argv)
     write_pg(*t, epoch, info, log);
     fs->apply_transaction(*t);
 
-    //XXX: Rename pg into place.  I don't think this can be a single rename
+    import_files(fs, coll_t(pgid));
+
+    //XXX: Rename pg into place?  I don't think this can be a single rename
 
 #if DIAGNOSTIC
     cout << "epoch " << epoch << std::endl;
