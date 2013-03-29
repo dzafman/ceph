@@ -222,6 +222,75 @@ void write_pg(ObjectStore::Transaction &t, epoch_t epoch, pg_info_t &info, pg_lo
   write_log(t, log);
 }
 
+int export_file(ObjectStore *store, coll_t cid, hobject_t &obj)
+{
+  struct stat st;
+  size_t total;
+  ostringstream objname;
+
+
+  int ret = store->stat(cid, obj, &st);
+  if (ret < 0)
+    return ret;
+
+  {
+    bufferlist bl, strbl;
+    objname << obj;
+    cout << "objname=" << objname.str() << std::endl;
+
+    total = st.st_size;
+    cout << "size=" << total << std::endl;
+
+    ::encode(objname.str(), strbl);
+    size_t namdatlen = total + strbl.length();
+
+    ::encode(namdatlen, bl);
+    bl.write_fd(file_fd);
+    strbl.write_fd(file_fd);
+  }
+
+  uint64_t offset = 0;
+  while(total > 0) {
+    size_t len = max_read;
+    if (len > total)
+      len = total;
+    //XXX: If I knew how to clear a bufferlist, I wouldn't need to reallocate
+    bufferlist bl(len);
+
+    ret = store->read(cid, obj, offset, len, bl);
+    if (ret < 0)
+      return ret;
+    if (ret == 0)
+      return -EINVAL;
+    total -= ret;
+    offset += ret;
+    bl.write_fd(file_fd);
+  }
+
+  return 0;
+}
+
+int export_files(ObjectStore *store, coll_t coll)
+{
+  vector<hobject_t> objects;
+  hobject_t max;
+  int r = 0;
+
+  while (!max.is_max()) {
+    r = store->collection_list_partial(coll, max, 200, 300, 0, &objects, &max);
+    if (r < 0)
+      return r;
+    for (vector<hobject_t>::iterator i = objects.begin();
+	 i != objects.end();
+	 ++i) {
+      r = export_file(store, coll, *i);
+      if (r < 0)
+        return r;
+    }
+  }
+  return 0;
+}
+
 int main(int argc, char **argv)
 {
   string fspath, jpath, pgidstr, type, file;
@@ -536,6 +605,9 @@ int main(int argc, char **argv)
       
       sizebl.write_fd(file_fd);
       ebl.write_fd(file_fd);
+
+      export_files(fs, coll);
+
     } else if (type == "info") {
       formatter->open_object_section("info");
       info.dump(formatter);
