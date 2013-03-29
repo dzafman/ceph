@@ -236,10 +236,12 @@ int export_file(ObjectStore *store, coll_t cid, hobject_t &obj)
   {
     bufferlist bl, strbl;
     objname << obj;
-    cout << "objname=" << objname.str() << std::endl;
+    if (debug && file_fd != STDOUT_FILENO)
+      cout << "objname=" << objname.str() << std::endl;
 
     total = st.st_size;
-    cout << "size=" << total << std::endl;
+    if (debug && file_fd != STDOUT_FILENO)
+      cout << "size=" << total << std::endl;
 
     ::encode(objname.str(), strbl);
     size_t namdatlen = total + strbl.length();
@@ -319,8 +321,10 @@ int import_files(ObjectStore *store, coll_t coll)
   
     ::decode(filename, ebliter);
   
-    cout << "filename=" << filename << std::endl;
-    cout << "size=" << total - filename.length() - sizeof(__u32) << std::endl;
+    if (debug) {
+      cout << "filename=" << filename << std::endl;
+      cout << "size=" << total - filename.length() - sizeof(__u32) << std::endl;
+    }
   
     //CREATE NEW FILE AND WRITE REST OF ebl
   
