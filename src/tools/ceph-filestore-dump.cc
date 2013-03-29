@@ -46,6 +46,7 @@ hobject_t infos_oid(sobject_t("infos", CEPH_NOSNAP));
 hobject_t biginfo_oid, log_oid;
 
 int file_fd = fd_none;
+bool debug;
 
 static void
 corrupt()
@@ -61,7 +62,7 @@ static void invalid_path(string &path)
 }
 
 int get_log(ObjectStore *fs, coll_t coll, pg_t pgid, const pg_info_t &info,
-   PG::IndexedLog &log, pg_missing_t &missing, bool debug)
+   PG::IndexedLog &log, pg_missing_t &missing)
 { 
   PG::OndiskLog ondisklog;
   try {
@@ -184,7 +185,7 @@ int initiate_new_remove_pg(ObjectStore *store, pg_t r_pgid, uint64_t *next_remov
   return 0;
 }
 
-void write_info(ObjectStore::Transaction &t, epoch_t epoch, pg_info_t &info, bool debug)
+void write_info(ObjectStore::Transaction &t, epoch_t epoch, pg_info_t &info)
 {
   //Empty for this
   interval_set<snapid_t> snap_collections; // obsolete
@@ -215,9 +216,9 @@ void write_log(ObjectStore::Transaction &t, pg_log_t &log)
   PG::_write_log(t, log, log_oid, divergent_priors);
 }
 
-void write_pg(ObjectStore::Transaction &t, epoch_t epoch, pg_info_t &info, pg_log_t &log, bool debug)
+void write_pg(ObjectStore::Transaction &t, epoch_t epoch, pg_info_t &info, pg_log_t &log)
 {
-  write_info(t, epoch, info, debug);
+  write_info(t, epoch, info);
   write_log(t, log);
 }
 
@@ -325,6 +326,9 @@ int main(int argc, char **argv)
   if (!vm.count("debug")) {
     close(STDERR_FILENO);
     (void)open("/dev/null", O_WRONLY);
+    debug = false;
+  } else {
+    debug = true;
   }
 
   global_init(
@@ -433,7 +437,7 @@ int main(int argc, char **argv)
     //XXX: Should somehow write everything to a temporary location
     ObjectStore::Transaction *t = new ObjectStore::Transaction;
 
-    write_pg(*t, epoch, info, log, vm.count("debug") != 0);
+    write_pg(*t, epoch, info, log);
     fs->apply_transaction(*t);
 
     //XXX: Rename pg into place.  I don't think this can be a single rename
@@ -472,7 +476,7 @@ int main(int argc, char **argv)
     if (tmppgid != pgid) {
       continue;
     }
-    if (snap != CEPH_NOSNAP && vm.count("debug")) {
+    if (snap != CEPH_NOSNAP && debug) {
       cerr << "skipping snapped dir " << *it
 	       << " (pg " << pgid << " snap " << snap << ")" << std::endl;
       continue;
@@ -489,7 +493,7 @@ int main(int argc, char **argv)
   
     bufferlist bl;
     map_epoch = PG::peek_map_epoch(fs, coll, infos_oid, &bl);
-    if (vm.count("debug"))
+    if (debug)
       cerr << "map_epoch " << map_epoch << std::endl;
 
     pg_info_t info(pgid);
@@ -505,7 +509,7 @@ int main(int argc, char **argv)
       ret = 1;
       goto out;
     }
-    if (vm.count("debug"))
+    if (debug)
       cerr << "struct_v " << (int)struct_v << std::endl;
 
     if (type == "export") {
@@ -514,7 +518,7 @@ int main(int argc, char **argv)
       bufferlist ebl, sizebl;
       size_t size;
   
-      ret = get_log(fs, coll, pgid, info, log, missing, vm.count("debug") != 0);
+      ret = get_log(fs, coll, pgid, info, log, missing);
       if (ret > 0)
           goto out;
   
@@ -536,7 +540,7 @@ int main(int argc, char **argv)
     } else if (type == "log") {
       PG::IndexedLog log;
       pg_missing_t missing;
-      ret = get_log(fs, coll, pgid, info, log, missing, vm.count("debug") != 0);
+      ret = get_log(fs, coll, pgid, info, log, missing);
       if (ret > 0)
           goto out;
   
