@@ -68,8 +68,8 @@ int get_log(ObjectStore *fs, coll_t coll, pg_t pgid, const pg_info_t &info,
   try {
     ostringstream oss;
     PG::read_log(fs, coll, log_oid, info, ondisklog, log, missing, oss);
-    if (debug)
-      cerr << oss;
+    if (debug && oss.str().size())
+      cerr << oss.str() << std::endl;
   }
   catch (const buffer::error &e) {
     cout << "read_log threw exception error", e.what();
