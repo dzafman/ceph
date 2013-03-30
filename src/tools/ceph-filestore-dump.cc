@@ -234,7 +234,7 @@ int export_file(ObjectStore *store, coll_t cid, hobject_t &obj)
     return ret;
 
   {
-    bufferlist bl, strbl;
+    bufferlist sizebl, hobjbl;
     objname << obj;
     if (debug && file_fd != STDOUT_FILENO)
       cout << "objname=" << objname.str() << std::endl;
@@ -243,12 +243,12 @@ int export_file(ObjectStore *store, coll_t cid, hobject_t &obj)
     if (debug && file_fd != STDOUT_FILENO)
       cout << "size=" << total << std::endl;
 
-    ::encode(objname.str(), strbl);
-    size_t namdatlen = total + strbl.length();
+    ::encode(obj, hobjbl);
+    size_t hobjdatlen = total + hobjbl.length();
 
-    ::encode(namdatlen, bl);
-    bl.write_fd(file_fd);
-    strbl.write_fd(file_fd);
+    ::encode(hobjdatlen, sizebl);
+    sizebl.write_fd(file_fd);
+    hobjbl.write_fd(file_fd);
   }
 
   uint64_t offset = 0;
@@ -296,22 +296,22 @@ int export_files(ObjectStore *store, coll_t coll)
 int import_files(ObjectStore *store, coll_t coll)
 {
   do {
-    string filename;
     bufferlist ebl;
     bufferlist::iterator ebliter = ebl.begin();
-    size_t total;
+    size_t hobjdatlen;
     size_t bytes;
+    hobject_t hobj;
   
-    bytes = ebl.read_fd(file_fd, sizeof(total));
+    bytes = ebl.read_fd(file_fd, sizeof(hobjdatlen));
     //See if are at EOF
     if (bytes == 0)
       break;
-    if (bytes != sizeof(total))
+    if (bytes != sizeof(hobjdatlen))
       corrupt();
   
-    ::decode(total, ebliter);
+    ::decode(hobjdatlen, ebliter);
   
-    size_t read_len = total;
+    size_t read_len = hobjdatlen;
     if (read_len > max_read)
       read_len = max_read;
   
@@ -319,27 +319,30 @@ int import_files(ObjectStore *store, coll_t coll)
     if (bytes != read_len)
       corrupt();
   
-    ::decode(filename, ebliter);
+    ::decode(hobj, ebliter);
   
     if (debug) {
-      cout << "filename=" << filename << std::endl;
-      cout << "size=" << total - filename.length() - sizeof(__u32) << std::endl;
+      ostringstream objname;
+      objname << hobj;
+      cout << "filename=" << objname.str() << std::endl;
+      //XXX: 39 bytes is current encode of hobject_t excluding object_t name
+      cout << "size=" << hobjdatlen - hobj.oid.name.size() - 39  << std::endl;
     }
   
     //CREATE NEW FILE AND WRITE REST OF ebl
   
-    total -= bytes;
+    hobjdatlen -= bytes;
   
-    while(total > 0) {
+    while(hobjdatlen > 0) {
       bufferlist buf;
-      size_t read_len = total;
+      size_t read_len = hobjdatlen;
       if (read_len > max_read)
         read_len = max_read;
   
       bytes = buf.read_fd(file_fd, read_len);
       if (bytes == 0)
         corrupt();
-      total -= bytes;
+      hobjdatlen -= bytes;
   
       //Write buf to file
     }
