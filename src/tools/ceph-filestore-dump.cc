@@ -269,6 +269,23 @@ int export_file(ObjectStore *store, coll_t cid, hobject_t &obj)
     bl.write_fd(file_fd);
   }
 
+  //Handle omap information
+  bufferlist omapbuf, lenbuf;
+  bufferlist hdrbuf;
+  map<string, bufferlist> out;
+  ret = store->omap_get(cid, obj, &hdrbuf, &out);
+  if (ret < 0)
+    return ret;
+
+  ::encode(hdrbuf, omapbuf);
+  ::encode(out, omapbuf);
+
+  size_t len = omapbuf.length();
+  ::encode(len, lenbuf);
+
+  lenbuf.write_fd(file_fd);
+  omapbuf.write_fd(file_fd);
+
   return 0;
 }
 
