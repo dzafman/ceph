@@ -312,6 +312,9 @@ int export_files(ObjectStore *store, coll_t coll)
 
 int import_files(ObjectStore *store, coll_t coll)
 {
+  ObjectStore::Transaction *t = new ObjectStore::Transaction;
+  t->create_collection(coll);
+  store->apply_transaction(*t);
   do {
     bufferlist ebl;
     bufferlist::iterator ebliter = ebl.begin();
@@ -338,6 +341,9 @@ int import_files(ObjectStore *store, coll_t coll)
   
     ::decode(hobj, ebliter);
   
+    t->touch(coll, hobj);
+    store->apply_transaction(*t);
+
     if (debug) {
       ostringstream objname;
       objname << hobj;
@@ -350,6 +356,11 @@ int import_files(ObjectStore *store, coll_t coll)
     if (debug)
       cout << "data=" << string(bp.c_str(), bp.length());
     size_t size = bp.length();
+    uint64_t off = 0;
+    bufferlist databl;
+    databl.push_front(bp);
+    t->write(coll, hobj, off, size,  databl);
+    off += size;
   
     hobjdatlen -= bytes;
   
@@ -368,7 +379,9 @@ int import_files(ObjectStore *store, coll_t coll)
       //Write buf to file
       if (debug)
         cout << string(buf.c_str(), bytes);
+      t->write(coll, hobj, off, bytes,  buf);
       size += bytes;
+      off += bytes;
     }
     if (debug) {
       cout << std::endl;
@@ -408,10 +421,10 @@ int import_files(ObjectStore *store, coll_t coll)
              << std::endl;
       }
     }
-
-    //Close
+    store->apply_transaction(*t);
   } while(true);
 
+  delete t;
   return 0;
 }
 
