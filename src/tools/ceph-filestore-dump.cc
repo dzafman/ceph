@@ -341,12 +341,15 @@ int import_files(ObjectStore *store, coll_t coll)
     if (debug) {
       ostringstream objname;
       objname << hobj;
+      cout << std::endl;
       cout << "filename=" << objname.str() << std::endl;
-      //XXX: 39 bytes is current encode of hobject_t excluding object_t name
-      cout << "size=" << hobjdatlen - hobj.oid.name.size() - 39  << std::endl;
     }
   
     //CREATE NEW FILE AND WRITE REST OF ebl
+    bufferptr bp = ebliter.get_current_ptr();
+    if (debug)
+      cout << "data=" << string(bp.c_str(), bp.length());
+    size_t size = bp.length();
   
     hobjdatlen -= bytes;
   
@@ -360,10 +363,52 @@ int import_files(ObjectStore *store, coll_t coll)
       if (bytes == 0)
         corrupt();
       hobjdatlen -= bytes;
+      assert(bytes == buf.length());
   
       //Write buf to file
+      if (debug)
+        cout << string(buf.c_str(), bytes);
+      size += bytes;
+    }
+    if (debug) {
+      cout << std::endl;
+      cout << "size=" << size << std::endl;
     }
   
+    {
+      bufferlist ebl;
+      bufferlist::iterator ebliter = ebl.begin();
+      size_t omaplen;
+      size_t bytes;
+      bufferlist hdrbuf;
+      map<string, bufferlist> out;
+  
+      bytes = ebl.read_fd(file_fd, sizeof(hobjdatlen));
+      if (bytes != sizeof(hobjdatlen))
+        corrupt();
+  
+      ::decode(omaplen, ebliter);
+ 
+      //How big can omaplen get?
+      bytes = ebl.read_fd(file_fd, omaplen);
+      if (bytes != omaplen)
+        corrupt();
+
+      ::decode(hdrbuf, ebliter);
+      if (debug)
+        cout << "header=" << string(hdrbuf.c_str(), hdrbuf.length())
+          << std::endl;
+      ::decode(out, ebliter);
+      for (map<string, bufferlist>::iterator i = out.begin();
+         i != out.end();
+         ++i) {
+        if (debug)
+          cout << "key=" << i->first 
+             << " val=" << string(i->second.c_str(), i->second.length())
+             << std::endl;
+      }
+    }
+
     //Close
   } while(true);
 
@@ -588,10 +633,12 @@ int main(int argc, char **argv)
     //XXX: Check for PG already present.  Require use to remove before import
 
     //XXX: Should somehow write everything to a temporary location
+#if 0
     ObjectStore::Transaction *t = new ObjectStore::Transaction;
 
     write_pg(*t, epoch, info, log);
     fs->apply_transaction(*t);
+#endif
 
     import_files(fs, coll_t(pgid));
 
