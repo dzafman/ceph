@@ -478,13 +478,13 @@ int main(int argc, char **argv)
 	 << desc << std::endl;
     return 1;
   } 
-  if (!vm.count("pgid")) {
-    cout << "Must provide pgid" << std::endl
+  if (!vm.count("type")) {
+    cout << "Must provide type ('info' or 'log')" << std::endl
 	 << desc << std::endl;
     return 1;
   } 
-  if (!vm.count("type")) {
-    cout << "Must provide type ('info' or 'log')" << std::endl
+  if (type != "import" && !vm.count("pgid")) {
+    cout << "Must provide pgid" << std::endl
 	 << desc << std::endl;
     return 1;
   } 
@@ -514,9 +514,15 @@ int main(int argc, char **argv)
     return 1;
   }
   
-  if (fspath.length() == 0 || jpath.length() == 0 || pgidstr.length() == 0 ||
-    (type != "info" && type != "log" && type != "remove" && type != "export" && type != "import")) {
+  if ((fspath.length() == 0 || jpath.length() == 0) ||
+      (type != "info" && type != "log" && type != "remove" && type != "export" && type != "import") ||
+      (type != "import" && pgidstr.length() == 0)) {
     cerr << "Invalid params" << std::endl;
+    exit(1);
+  }
+
+  if (type == "import" && pgidstr.length()) {
+    cerr << "--pgid option invalid with import" << std::endl;
     exit(1);
   }
 
@@ -574,7 +580,7 @@ int main(int argc, char **argv)
   }
 
   pg_t pgid;
-  if (!pgid.parse(pgidstr.c_str())) {
+  if (pgidstr.length() && !pgid.parse(pgidstr.c_str())) {
     cout << "Invalid pgid '" << pgidstr << "' specified" << std::endl;
     exit(1);
   }
@@ -594,26 +600,12 @@ int main(int argc, char **argv)
   int ret = 0;
   vector<coll_t> ls;
   vector<coll_t>::iterator it;
-  log_oid = OSD::make_pg_log_oid(pgid);
-  biginfo_oid = OSD::make_pg_biginfo_oid(pgid);
 
-  if (type == "remove") {
-    uint64_t next_removal_seq = 0;	//My local seq
-    finish_remove_pgs(fs, &next_removal_seq);
-    int r = initiate_new_remove_pg(fs, pgid, &next_removal_seq);
-    if (r) {
-      cout << "PG '" << pgid << "' not found" << std::endl;
-      ret = 1;
-      goto out;
-    }
-    finish_remove_pgs(fs, &next_removal_seq);
-    cout << "Remove successful" << std::endl;
-    goto out;
-  } else if (type == "import") {
+  if (type == "import") {
     bufferlist ebl;
     bufferlist::iterator ebliter = ebl.begin();
     int bytes;
-    pg_info_t info(pgid);
+    pg_info_t info;
     PG::IndexedLog log;
     epoch_t epoch;
     size_t size;
@@ -642,18 +634,22 @@ int main(int argc, char **argv)
     assert(size == 0);
 
     ::decode(epoch, ebliter);
+
     info.decode(ebliter);
+    pgid = info.pgid;
+    log_oid = OSD::make_pg_log_oid(pgid);
+    biginfo_oid = OSD::make_pg_biginfo_oid(pgid);
+
     log.decode(ebliter);
  
     //XXX: Check for PG already present.  Require use to remove before import
 
     //XXX: Should somehow write everything to a temporary location
-#if 0
+
     ObjectStore::Transaction *t = new ObjectStore::Transaction;
 
     write_pg(*t, epoch, info, log);
     fs->apply_transaction(*t);
-#endif
 
     import_files(fs, coll_t(pgid));
 
@@ -673,6 +669,23 @@ int main(int argc, char **argv)
     formatter->flush(cout);
     cout << std::endl;
 #endif
+    goto out;
+  }
+
+  log_oid = OSD::make_pg_log_oid(pgid);
+  biginfo_oid = OSD::make_pg_biginfo_oid(pgid);
+
+  if (type == "remove") {
+    uint64_t next_removal_seq = 0;	//My local seq
+    finish_remove_pgs(fs, &next_removal_seq);
+    int r = initiate_new_remove_pg(fs, pgid, &next_removal_seq);
+    if (r) {
+      cout << "PG '" << pgid << "' not found" << std::endl;
+      ret = 1;
+      goto out;
+    }
+    finish_remove_pgs(fs, &next_removal_seq);
+    cout << "Remove successful" << std::endl;
     goto out;
   }
 
