@@ -671,7 +671,7 @@ int main(int argc, char **argv)
     formatter->flush(cout);
     cout << std::endl;
 #endif
-    exit(0);
+    goto out;
   }
 
   r = fs->list_collections(ls);
