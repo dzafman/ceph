@@ -315,12 +315,15 @@ int import_files(ObjectStore *store, coll_t coll)
   ObjectStore::Transaction *t = new ObjectStore::Transaction;
   t->create_collection(coll);
   store->apply_transaction(*t);
+  delete t;
   do {
     bufferlist ebl;
     bufferlist::iterator ebliter = ebl.begin();
     size_t hobjdatlen;
     size_t bytes;
     hobject_t hobj;
+    ObjectStore::Transaction tran;
+    ObjectStore::Transaction *t = &tran;
   
     bytes = ebl.read_fd(file_fd, sizeof(hobjdatlen));
     //See if are at EOF
@@ -424,7 +427,6 @@ int import_files(ObjectStore *store, coll_t coll)
     store->apply_transaction(*t);
   } while(true);
 
-  delete t;
   return 0;
 }
 
