@@ -2547,6 +2547,16 @@ unsigned FileStore::_do_transaction(Transaction& t, uint64_t op_seq, int trans_n
       }
       break;
 
+    case Transaction::OP_COLL_SETATTRS:
+      {
+	coll_t cid = i.get_cid();
+	map<string,bufferptr> aset;
+	i.get_attrset(aset);
+	if (_check_replay_guard(cid, spos) > 0)
+	  r = _collection_setattrs(cid, aset);
+      }
+      break;
+
     case Transaction::OP_STARTSYNC:
       _start_sync();
       break;
