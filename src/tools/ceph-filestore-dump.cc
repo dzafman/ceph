@@ -310,6 +310,30 @@ int export_files(ObjectStore *store, coll_t coll)
   return 0;
 }
 
+void get_section(bufferlist &ebl, bufferlist::iterator &ebliter)
+{
+  int bytes;
+  size_t size;
+
+  bytes = ebl.read_fd(file_fd, sizeof(size));
+  if (bytes != sizeof(size))
+    corrupt();
+
+  ::decode(size, ebliter);
+
+  do {
+    size_t read_len = size;
+    if (read_len > max_read)
+      read_len = max_read;
+    
+    bytes = ebl.read_fd(file_fd, read_len);
+    if (bytes == 0)
+      corrupt();
+    size -= bytes;
+  } while(size > 0);
+  assert(size == 0);
+}
+
 int import_files(ObjectStore *store, coll_t coll)
 {
   ObjectStore::Transaction *t = new ObjectStore::Transaction;
@@ -604,39 +628,24 @@ int main(int argc, char **argv)
   if (type == "import") {
     bufferlist ebl;
     bufferlist::iterator ebliter = ebl.begin();
-    int bytes;
     pg_info_t info;
     PG::IndexedLog log;
     epoch_t epoch;
-    size_t size;
 
+#if 0
     if (getuid() != 0 || getgid() != 0) {
       cout << "Please use sudo to import" << std::endl;
       exit(1);
     }
+#endif
 
-    bytes = ebl.read_fd(file_fd, sizeof(size));
-    if (bytes != sizeof(size))
-      corrupt();
-
-    ::decode(size, ebliter);
-
-    do {
-      size_t read_len = size;
-      if (read_len > max_read)
-        read_len = max_read;
-      
-      bytes = ebl.read_fd(file_fd, read_len);
-      if (bytes == 0)
-        corrupt();
-      size -= bytes;
-    } while(size > 0);
-    assert(size == 0);
+    get_section(ebl, ebliter);
 
     ::decode(epoch, ebliter);
 
     info.decode(ebliter);
     pgid = info.pgid;
+    coll_t coll(pgid);
     log_oid = OSD::make_pg_log_oid(pgid);
     biginfo_oid = OSD::make_pg_biginfo_oid(pgid);
 
@@ -650,8 +659,25 @@ int main(int argc, char **argv)
 
     write_pg(*t, epoch, info, log);
     fs->apply_transaction(*t);
+    delete t;
 
-    import_files(fs, coll_t(pgid));
+    {
+      map<string,bufferptr> aset;
+      bufferlist ebl;
+      bufferlist::iterator ebliter = ebl.begin();
+      
+      get_section(ebl, ebliter);
+
+      ::decode(aset, ebliter);
+
+      ObjectStore::Transaction *t = new ObjectStore::Transaction;
+      t->collection_setattrs(coll, aset);
+
+      fs->apply_transaction(*t);
+      delete t;
+    }
+
+    import_files(fs, coll);
 
     //XXX: Rename pg into place?  I don't think this can be a single rename
 
@@ -761,6 +787,23 @@ int main(int argc, char **argv)
       
       sizebl.write_fd(file_fd);
       ebl.write_fd(file_fd);
+
+      {
+        map<string,bufferptr> aset;
+        bufferlist ebl, sbl;
+        size_t size;
+
+        ret = fs->collection_getattrs(coll, aset);
+        if (ret > 0)
+          goto out;
+
+        ::encode(aset, ebl);
+        size = ebl.length();
+        ::encode(size, sbl);
+
+        sbl.write_fd(file_fd);
+        ebl.write_fd(file_fd);
+      }
 
       export_files(fs, coll);
 
