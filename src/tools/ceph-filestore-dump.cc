@@ -336,10 +336,6 @@ void get_section(bufferlist &ebl, bufferlist::iterator &ebliter)
 
 int import_files(ObjectStore *store, coll_t coll)
 {
-  ObjectStore::Transaction *t = new ObjectStore::Transaction;
-  t->create_collection(coll);
-  store->apply_transaction(*t);
-  delete t;
   do {
     bufferlist ebl;
     bufferlist::iterator ebliter = ebl.begin();
@@ -646,6 +642,7 @@ int main(int argc, char **argv)
     info.decode(ebliter);
     pgid = info.pgid;
     coll_t coll(pgid);
+    cout << "Importing pgid " << pgid << std::endl;
     log_oid = OSD::make_pg_log_oid(pgid);
     biginfo_oid = OSD::make_pg_biginfo_oid(pgid);
 
@@ -661,17 +658,21 @@ int main(int argc, char **argv)
     fs->apply_transaction(*t);
     delete t;
 
+    t = new ObjectStore::Transaction;
+    t->create_collection(coll);
+    fs->apply_transaction(*t);
+    delete t;
+
     {
-      map<string,bufferptr> aset;
-      bufferlist ebl;
+      bufferlist ebl, infobl;
       bufferlist::iterator ebliter = ebl.begin();
       
       get_section(ebl, ebliter);
 
-      ::decode(aset, ebliter);
+      ebliter.copy(ebliter.get_remaining(), infobl);
 
       ObjectStore::Transaction *t = new ObjectStore::Transaction;
-      t->collection_setattrs(coll, aset);
+      t->collection_setattr(coll, "info", infobl);
 
       fs->apply_transaction(*t);
       delete t;
@@ -789,15 +790,13 @@ int main(int argc, char **argv)
       ebl.write_fd(file_fd);
 
       {
-        map<string,bufferptr> aset;
         bufferlist ebl, sbl;
         size_t size;
 
-        ret = fs->collection_getattrs(coll, aset);
-        if (ret > 0)
+        ret = fs->collection_getattr(coll, "info", ebl);
+        if (ret < 0)
           goto out;
 
-        ::encode(aset, ebl);
         size = ebl.length();
         ::encode(size, sbl);
 
