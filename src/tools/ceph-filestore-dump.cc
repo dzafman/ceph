@@ -38,7 +38,8 @@
 namespace po = boost::program_options;
 using namespace std;
 
-const size_t max_read = 1024 * 1024;
+typedef uint64_t mysize_t;
+const mysize_t max_read = 1024 * 1024;
 const int fd_none = INT_MIN;
 
 //XXX: This needs OSD function to generate
@@ -215,7 +216,7 @@ void write_pg(ObjectStore::Transaction &t, epoch_t epoch, pg_info_t &info, pg_lo
 int export_file(ObjectStore *store, coll_t cid, hobject_t &obj)
 {
   struct stat st;
-  size_t total;
+  mysize_t total;
   ostringstream objname;
 
 
@@ -234,7 +235,7 @@ int export_file(ObjectStore *store, coll_t cid, hobject_t &obj)
       cout << "size=" << total << std::endl;
 
     ::encode(obj, hobjbl);
-    size_t hobjdatlen = total + hobjbl.length();
+    mysize_t hobjdatlen = total + hobjbl.length();
 
     ::encode(hobjdatlen, sizebl);
     sizebl.write_fd(file_fd);
@@ -243,7 +244,7 @@ int export_file(ObjectStore *store, coll_t cid, hobject_t &obj)
 
   uint64_t offset = 0;
   while(total > 0) {
-    size_t len = max_read;
+    mysize_t len = max_read;
     if (len > total)
       len = total;
     //XXX: If I knew how to clear a bufferlist, I wouldn't need to reallocate
@@ -303,7 +304,7 @@ int export_files(ObjectStore *store, coll_t coll)
 void get_section(bufferlist &ebl, bufferlist::iterator &ebliter)
 {
   int bytes;
-  size_t size;
+  mysize_t size;
 
   bytes = ebl.read_fd(file_fd, sizeof(size));
   if (bytes != sizeof(size))
@@ -312,7 +313,7 @@ void get_section(bufferlist &ebl, bufferlist::iterator &ebliter)
   ::decode(size, ebliter);
 
   do {
-    size_t read_len = size;
+    mysize_t read_len = size;
     if (read_len > max_read)
       read_len = max_read;
     
@@ -329,8 +330,8 @@ int import_files(ObjectStore *store, coll_t coll)
   do {
     bufferlist ebl;
     bufferlist::iterator ebliter = ebl.begin();
-    size_t hobjdatlen;
-    size_t bytes;
+    mysize_t hobjdatlen;
+    mysize_t bytes;
     hobject_t hobj;
     ObjectStore::Transaction tran;
     ObjectStore::Transaction *t = &tran;
@@ -344,7 +345,7 @@ int import_files(ObjectStore *store, coll_t coll)
   
     ::decode(hobjdatlen, ebliter);
   
-    size_t read_len = hobjdatlen;
+    mysize_t read_len = hobjdatlen;
     if (read_len > max_read)
       read_len = max_read;
   
@@ -368,7 +369,7 @@ int import_files(ObjectStore *store, coll_t coll)
     bufferptr bp = ebliter.get_current_ptr();
     if (debug)
       cout << "data=" << string(bp.c_str(), bp.length());
-    size_t size = bp.length();
+    mysize_t size = bp.length();
     uint64_t off = 0;
     bufferlist databl;
     databl.push_front(bp);
@@ -379,7 +380,7 @@ int import_files(ObjectStore *store, coll_t coll)
   
     while(hobjdatlen > 0) {
       bufferlist buf;
-      size_t read_len = hobjdatlen;
+      mysize_t read_len = hobjdatlen;
       if (read_len > max_read)
         read_len = max_read;
   
@@ -763,7 +764,7 @@ int main(int argc, char **argv)
       PG::IndexedLog log;
       pg_missing_t missing;
       bufferlist ebl, sizebl;
-      size_t size;
+      mysize_t size;
   
       ret = get_log(fs, coll, pgid, info, log, missing);
       if (ret > 0)
@@ -781,7 +782,7 @@ int main(int argc, char **argv)
 
       {
         bufferlist ebl, sbl;
-        size_t size;
+        mysize_t size;
 
         ret = fs->collection_getattr(coll, "info", ebl);
         if (ret < 0)
