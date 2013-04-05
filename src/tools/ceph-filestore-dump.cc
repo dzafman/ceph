@@ -185,29 +185,19 @@ int initiate_new_remove_pg(ObjectStore *store, pg_t r_pgid, uint64_t *next_remov
   return 0;
 }
 
-void write_info(ObjectStore::Transaction &t, epoch_t epoch, pg_info_t &info)
+int write_info(ObjectStore::Transaction &t, epoch_t epoch, pg_info_t &info)
 {
   //Empty for this
   interval_set<snapid_t> snap_collections; // obsolete
   map<epoch_t,pg_interval_t> past_intervals;
+  coll_t coll(info.pgid);
 
-  // info.  store purged_snaps separately.
-  interval_set<snapid_t> purged_snaps;
-  map<string,bufferlist> v;
-  ::encode(epoch, v[PG::get_epoch_key(info.pgid)]);
-  purged_snaps.swap(info.purged_snaps);
-  ::encode(info, v[PG::get_info_key(info.pgid)]);
-  purged_snaps.swap(info.purged_snaps);
-
-  // potentially big stuff
-  bufferlist& bigbl = v[PG::get_biginfo_key(info.pgid)];
-  ::encode(past_intervals, bigbl);
-  ::encode(snap_collections, bigbl);
-  ::encode(info.purged_snaps, bigbl);
-  if (debug)
-    cout << "write_info bigbl " << bigbl.length() << std::endl;
-
-  t.omap_setkeys(coll_t::META_COLL, infos_oid, v);
+  return PG::_write_info(t, epoch,
+    info, coll,
+    past_intervals,
+    snap_collections,
+    infos_oid,
+    0, true);
 }
 
 void write_log(ObjectStore::Transaction &t, pg_log_t &log)
