@@ -212,12 +212,22 @@ void write_pg(ObjectStore::Transaction &t, epoch_t epoch, pg_info_t &info, pg_lo
   write_log(t, log);
 }
 
+void write_section(bufferlist &bl)
+{
+  bufferlist lenbuf;
+
+  mysize_t len = bl.length();
+  ::encode(len, lenbuf);
+
+  lenbuf.write_fd(file_fd);
+  bl.write_fd(file_fd);
+}
+
 int export_file(ObjectStore *store, coll_t cid, hobject_t &obj)
 {
   struct stat st;
   mysize_t total;
   ostringstream objname;
-
 
   int ret = store->stat(cid, obj, &st);
   if (ret < 0)
@@ -259,6 +269,22 @@ int export_file(ObjectStore *store, coll_t cid, hobject_t &obj)
     bl.write_fd(file_fd);
   }
 
+  //Handle snapshots for this object
+  {
+    bufferlist bl;
+
+    store->getattr(cid, obj, SS_ATTR, bl);
+    write_section(bl);
+  }
+
+  //Handle attrs for this object
+  {
+    bufferlist bl;
+
+    store->getattr(cid, obj, OI_ATTR, bl);
+    write_section(bl);
+  }
+
   //Handle omap information
   bufferlist omapbuf, lenbuf;
   bufferlist hdrbuf;
@@ -270,11 +296,7 @@ int export_file(ObjectStore *store, coll_t cid, hobject_t &obj)
   ::encode(hdrbuf, omapbuf);
   ::encode(out, omapbuf);
 
-  size_t len = omapbuf.length();
-  ::encode(len, lenbuf);
-
-  lenbuf.write_fd(file_fd);
-  omapbuf.write_fd(file_fd);
+  write_section(omapbuf);
 
   return 0;
 }
@@ -400,25 +422,40 @@ int import_files(ObjectStore *store, coll_t coll)
       cout << std::endl;
       cout << "size=" << size << std::endl;
     }
+
+    //Get snapshots
+    {
+      bufferlist bl, vbl;
+      bufferlist::iterator bliter = bl.begin();
+
+      get_section(bl, bliter);
+
+      bufferptr bp = bliter.get_current_ptr();
+      vbl.push_front(bp);
+
+      t->setattr(coll, hobj, SS_ATTR, vbl);
+    }
+
+    //Get attributes
+    {
+      bufferlist bl, vbl;
+      bufferlist::iterator bliter = bl.begin();
+
+      get_section(bl, bliter);
   
+      bufferptr bp = bliter.get_current_ptr();
+      vbl.push_front(bp);
+
+      t->setattr(coll, hobj, OI_ATTR, vbl);
+    }
+
     {
       bufferlist ebl;
       bufferlist::iterator ebliter = ebl.begin();
-      size_t omaplen;
-      size_t bytes;
       bufferlist hdrbuf;
       map<string, bufferlist> out;
   
-      bytes = ebl.read_fd(file_fd, sizeof(hobjdatlen));
-      if (bytes != sizeof(hobjdatlen))
-        corrupt();
-  
-      ::decode(omaplen, ebliter);
- 
-      //How big can omaplen get?
-      bytes = ebl.read_fd(file_fd, omaplen);
-      if (bytes != omaplen)
-        corrupt();
+      get_section(ebl, ebliter);
 
       ::decode(hdrbuf, ebliter);
       if (debug)
