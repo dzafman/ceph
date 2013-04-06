@@ -42,8 +42,7 @@ typedef uint64_t mysize_t;
 const mysize_t max_read = 1024 * 1024;
 const int fd_none = INT_MIN;
 
-//XXX: This needs OSD function to generate
-hobject_t infos_oid(sobject_t("infos", CEPH_NOSNAP));
+hobject_t infos_oid;
 hobject_t biginfo_oid, log_oid;
 
 int file_fd = fd_none;
@@ -611,6 +610,7 @@ int main(int argc, char **argv)
   int ret = 0;
   vector<coll_t> ls;
   vector<coll_t>::iterator it;
+  infos_oid = OSD::make_infos_oid();
 
   if (type == "import") {
     bufferlist ebl;
