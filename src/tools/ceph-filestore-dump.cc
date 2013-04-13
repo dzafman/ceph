@@ -38,9 +38,164 @@
 namespace po = boost::program_options;
 using namespace std;
 
+enum {
+    TYPE_PG_BEGIN = 0x11111111,
+    TYPE_PG_END = 0x22222222,
+    TYPE_OBJECT_BEGIN = 0x33333333,
+    TYPE_OBJECT_END = 0x44444444,
+    TYPE_DATA = 0x55555555,
+    TYPE_SNAPS = 0x66666666,
+    TYPE_ATTRS = 0x77777777,
+    TYPE_OMAP = 0x88888888,
+    TYPE_PG_METADATA = 0x99999999,
+};
+
+typedef uint32_t mytype_t;
+typedef uint32_t mymagic_t;
 typedef uint64_t mysize_t;
 const mysize_t max_read = 1024 * 1024;
+const mymagic_t themagic = 0xdeadbeef;
 const int fd_none = INT_MIN;
+
+struct header {
+  mytype_t type;
+  mysize_t size;
+  header(mytype_t type, mysize_t size) :
+    type(type), size(size) { }
+
+  void encode(bufferlist& bl) const {
+    ENCODE_START(1, 1, bl);
+    ::encode(type, bl);
+    ::encode(size, bl);
+    ENCODE_FINISH(bl);
+  }
+  void decode(bufferlist::iterator& bl) {
+    DECODE_START(1, bl);
+    ::decode(type, bl);
+    ::decode(size, bl);
+    DECODE_FINISH(bl);
+  }
+};
+
+struct footer {
+  mymagic_t magic;
+  footer() : magic(themagic) { }
+
+  void encode(bufferlist& bl) const {
+    ENCODE_START(1, 1, bl);
+    ::encode(magic, bl);
+    ENCODE_FINISH(bl);
+  }
+  void decode(bufferlist::iterator& bl) {
+    DECODE_START(1, bl);
+    ::decode(magic, bl);
+    assert(magic == themagic);
+    DECODE_FINISH(bl);
+  }
+};
+
+struct pg_begin {
+  pg_t pgid;
+
+  pg_begin(pg_t pg): pgid(pg) { }
+
+  void encode(bufferlist& bl) const {
+    ENCODE_START(1, 1, bl);
+    ::encode(pgid, bl);
+    ENCODE_FINISH(bl);
+  }
+  void decode(bufferlist::iterator& bl) {
+    DECODE_START(1, bl);
+    ::decode(pgid, bl);
+    DECODE_FINISH(bl);
+  }
+};
+
+struct object_begin {
+  hobject_t hoid;
+  object_begin(hobject_t &hoid): hoid(hoid) { }
+
+  void encode(bufferlist& bl) const {
+    ENCODE_START(1, 1, bl);
+    ::encode(hoid, bl);
+    ENCODE_FINISH(bl);
+  }
+  void decode(bufferlist::iterator& bl) {
+    DECODE_START(1, bl);
+    ::decode(hoid, bl);
+    DECODE_FINISH(bl);
+  }
+};
+
+struct data {
+  uint64_t offset;
+  uint64_t len;
+  bufferlist databl;
+  data(uint64_t offset, uint64_t len, bufferlist bl):
+     offset(offset), len(len), databl(bl) { }
+
+  void encode(bufferlist& bl) const {
+    ENCODE_START(1, 1, bl);
+    ::encode(offset, bl);
+    ::encode(len, bl);
+    ::encode(databl, bl);
+    ENCODE_FINISH(bl);
+  }
+  void decode(bufferlist::iterator& bl) {
+    DECODE_START(1, bl);
+    ::decode(offset, bl);
+    ::decode(len, bl);
+    ::decode(databl, bl);
+    DECODE_FINISH(bl);
+  }
+};
+
+struct omap_section {
+  bufferlist hdr;
+  map<string, bufferlist> omap;
+  omap_section(bufferlist hdr, map<string, bufferlist> omap) :
+    hdr(hdr), omap(omap) { }
+
+  void encode(bufferlist& bl) const {
+    ENCODE_START(1, 1, bl);
+    ::encode(hdr, bl);
+    ::encode(omap, bl);
+    ENCODE_FINISH(bl);
+  }
+  void decode(bufferlist::iterator& bl) {
+    DECODE_START(1, bl);
+    ::decode(hdr, bl);
+    ::decode(omap, bl);
+    DECODE_FINISH(bl);
+  }
+};
+
+struct metadata_section {
+  epoch_t map_epoch;
+  pg_info_t info;
+  pg_log_t log;
+  bufferlist collattr;
+  metadata_section(epoch_t map_epoch, pg_info_t info, pg_log_t log,
+      bufferlist collattr):
+    map_epoch(map_epoch), info(info), log(log), collattr(collattr) { }
+
+  void encode(bufferlist& bl) const {
+    ENCODE_START(1, 1, bl);
+    ::encode(map_epoch, bl);
+    ::encode(info, bl);
+    ::encode(log, bl);
+    ::encode(collattr, bl);
+    ENCODE_FINISH(bl);
+  }
+  void decode(bufferlist::iterator& bl) {
+    DECODE_START(1, bl);
+    ::decode(map_epoch, bl);
+    ::decode(info, bl);
+    ::decode(log, bl);
+    ::decode(collattr, bl);
+    DECODE_FINISH(bl);
+  }
+};
 
 hobject_t infos_oid;
 hobject_t biginfo_oid, log_oid;
@@ -197,7 +352,8 @@ int write_info(ObjectStore::Transaction &t, epoch_t epoch, pg_info_t &info)
     past_intervals,
     snap_collections,
     infos_oid,
-    0, true);
+    0,      //Get version (struct_v)
+    true);
 }
 
 void write_log(ObjectStore::Transaction &t, pg_log_t &log)
@@ -212,91 +368,129 @@ void write_pg(ObjectStore::Transaction &t, epoch_t epoch, pg_info_t &info, pg_lo
   write_log(t, log);
 }
 
-void write_section(bufferlist &bl)
-{
-  bufferlist lenbuf;
-
-  mysize_t len = bl.length();
-  ::encode(len, lenbuf);
-
-  lenbuf.write_fd(file_fd);
-  bl.write_fd(file_fd);
-}
-
 int export_file(ObjectStore *store, coll_t cid, hobject_t &obj)
 {
   struct stat st;
   mysize_t total;
   ostringstream objname;
+  bufferlist ftbl;
+  footer ft;
 
   int ret = store->stat(cid, obj, &st);
   if (ret < 0)
     return ret;
 
-  {
-    bufferlist sizebl, hobjbl;
-    objname << obj;
-    if (debug && file_fd != STDOUT_FILENO)
-      cout << "objname=" << objname.str() << std::endl;
+  objname << obj;
+  if (debug && file_fd != STDOUT_FILENO)
+    cout << "objname=" << objname.str() << std::endl;
 
-    total = st.st_size;
-    if (debug && file_fd != STDOUT_FILENO)
-      cout << "size=" << total << std::endl;
+  total = st.st_size;
+  if (debug && file_fd != STDOUT_FILENO)
+    cout << "size=" << total << std::endl;
 
-    ::encode(obj, hobjbl);
-    mysize_t hobjdatlen = total + hobjbl.length();
+  bufferlist obl, hbl, fbl;
+  object_begin objb(obj);
+  objb.encode(obl);
 
-    ::encode(hobjdatlen, sizebl);
-    sizebl.write_fd(file_fd);
-    hobjbl.write_fd(file_fd);
-  }
+  header hdr(TYPE_OBJECT_BEGIN, obl.length());
+  hdr.encode(hbl);
+  ft.encode(fbl);
+
+  hbl.write_fd(file_fd);
+  obl.write_fd(file_fd);
+  fbl.write_fd(file_fd);
 
   uint64_t offset = 0;
+  bufferlist rawdatabl, databl;
   while(total > 0) {
+    rawdatabl.clear();
+    databl.clear();
     mysize_t len = max_read;
     if (len > total)
       len = total;
-    //XXX: If I knew how to clear a bufferlist, I wouldn't need to reallocate
-    bufferlist bl(len);
 
-    ret = store->read(cid, obj, offset, len, bl);
+    ret = store->read(cid, obj, offset, len, rawdatabl);
     if (ret < 0)
       return ret;
     if (ret == 0)
       return -EINVAL;
     total -= ret;
+
+    data dblock(offset, len, rawdatabl);
+    dblock.encode(databl);
+
+    hbl.clear();
+    header dhdr(TYPE_DATA, databl.length());
+    dhdr.encode(hbl);
+
+    hbl.write_fd(file_fd);
+    databl.write_fd(file_fd);
+    fbl.write_fd(file_fd);
+
+    if (debug && file_fd != STDOUT_FILENO)
+      cout << "data section offset=" << offset << " len=" << len << std::endl;
     offset += ret;
-    bl.write_fd(file_fd);
   }
 
   //Handle snapshots for this object
-  {
-    bufferlist bl;
+  databl.clear();
+  store->getattr(cid, obj, SS_ATTR, databl);
+  if (databl.length() > 0) {
+    hbl.clear();
+    header hdr(TYPE_SNAPS, databl.length());
+    hdr.encode(hbl);
 
-    store->getattr(cid, obj, SS_ATTR, bl);
-    write_section(bl);
+    hbl.write_fd(file_fd);
+    databl.write_fd(file_fd);
+    fbl.write_fd(file_fd);
+
+    if (debug && file_fd != STDOUT_FILENO)
+      cout << "snapshot data length " << databl.length() << std::endl;
   }
 
   //Handle attrs for this object
-  {
-    bufferlist bl;
+  databl.clear();
+  store->getattr(cid, obj, OI_ATTR, databl);
+  if (databl.length() > 0) {
+    hbl.clear();
+    header hdr(TYPE_ATTRS, databl.length());
+    hdr.encode(hbl);
 
-    store->getattr(cid, obj, OI_ATTR, bl);
-    write_section(bl);
+    hbl.write_fd(file_fd);
+    databl.write_fd(file_fd);
+    fbl.write_fd(file_fd);
+
+    if (debug && file_fd != STDOUT_FILENO)
+      cout << "attrs data length " << databl.length() << std::endl;
   }
 
   //Handle omap information
-  bufferlist omapbuf, lenbuf;
+  databl.clear();
   bufferlist hdrbuf;
   map<string, bufferlist> out;
   ret = store->omap_get(cid, obj, &hdrbuf, &out);
   if (ret < 0)
     return ret;
 
-  ::encode(hdrbuf, omapbuf);
-  ::encode(out, omapbuf);
+  omap_section oms(hdrbuf, out);
+  oms.encode(databl);
+  if (databl.length() > 0) {
+    header hdr(TYPE_OMAP, databl.length());
+    hbl.clear();
+    hdr.encode(hbl);
 
-  write_section(omapbuf);
+    hbl.write_fd(file_fd);
+    databl.write_fd(file_fd);
+    fbl.write_fd(file_fd);
+
+    if (debug && file_fd != STDOUT_FILENO)
+      cout << "omap data length " << databl.length() << std::endl;
+  }
+
+  header ehdr(TYPE_OBJECT_END, 0);
+  hbl.clear();
+  ehdr.encode(hbl);
+  hbl.write_fd(file_fd);
 
   return 0;
 }
@@ -476,6 +670,60 @@ int import_files(ObjectStore *store, coll_t coll)
 
   return 0;
 }
+
+int do_export(ObjectStore *fs, coll_t coll, pg_t pgid, pg_info_t &info,
+    epoch_t map_epoch)
+{
+  PG::IndexedLog log;
+  pg_missing_t missing;
+  bufferlist collattrbl;
+  bufferlist ftbl;
+  footer ft;
+
+  int ret = get_log(fs, coll, pgid, info, log, missing);
+  if (ret > 0)
+      return ret;
+
+  ret = fs->collection_getattr(coll, "info", collattrbl);
+  if (ret < 0)
+    return ret;
+
+  bufferlist pgbl, hbl, fbl;
+  pg_begin pgb(pgid);
+  pgb.encode(pgbl);
+
+  header hdr(TYPE_PG_BEGIN, pgbl.length());
+  hdr.encode(hbl);
+
+  ft.encode(fbl);
+
+  hbl.write_fd(file_fd);
+  pgbl.write_fd(file_fd);
+  fbl.write_fd(file_fd);
+  
+  export_files(fs, coll);
+
+  bufferlist metabl;
+  metadata_section ms(map_epoch, info, log, collattrbl);
+
+  ms.encode(metabl);
+
+  hbl.clear();
+  header mhdr(TYPE_PG_METADATA, metabl.length());
+  mhdr.encode(hbl);
+  
+  hbl.write_fd(file_fd);
+  metabl.write_fd(file_fd);
+  fbl.write_fd(file_fd);
+
+  header ehdr(TYPE_PG_END, 0);
+  hbl.clear();
+  ehdr.encode(hbl);
+  hbl.write_fd(file_fd);
+
+  return 0;
+}
+
 
 int main(int argc, char **argv)
 {
@@ -798,42 +1046,7 @@ int main(int argc, char **argv)
       cerr << "struct_v " << (int)struct_v << std::endl;
 
     if (type == "export") {
-      PG::IndexedLog log;
-      pg_missing_t missing;
-      bufferlist ebl, sizebl;
-      mysize_t size;
-  
-      ret = get_log(fs, coll, pgid, info, log, missing);
-      if (ret > 0)
-          goto out;
-  
-      ::encode(map_epoch, ebl);
-      info.encode(ebl);
-      log.encode(ebl);
-      size = ebl.length();
-      ::encode(size, sizebl);
-      assert(sizebl.length() == sizeof(size));
-      
-      sizebl.write_fd(file_fd);
-      ebl.write_fd(file_fd);
-
-      {
-        bufferlist ebl, sbl;
-        mysize_t size;
-
-        ret = fs->collection_getattr(coll, "info", ebl);
-        if (ret < 0)
-          goto out;
-
-        size = ebl.length();
-        ::encode(size, sbl);
-
-        sbl.write_fd(file_fd);
-        ebl.write_fd(file_fd);
-      }
-
-      export_files(fs, coll);
-
+      ret = do_export(fs, coll, pgid, info, map_epoch);
     } else if (type == "info") {
       formatter->open_object_section("info");
       info.dump(formatter);
