@@ -52,10 +52,10 @@ enum {
     TYPE_OMAP_HDR = 0xaaaaaaaa,
 };
 
-typedef uint32_t mytype_t;
+typedef uint32_t sectiontype_t;
 typedef uint32_t mymagic_t;
-typedef uint64_t mysize_t;
-const mysize_t max_read = 1024 * 1024;
+typedef int64_t mysize_t;
+const ssize_t max_read = 1024 * 1024;
 const mymagic_t themagic = 0xdeadbeef;
 const int fd_none = INT_MIN;
 
@@ -66,12 +66,14 @@ const int fd_none = INT_MIN;
 //the version can be bumped and then anything
 //can be added to the export format.
 struct super_header {
-   static const uint32_t super_magic = 0xcef4ace5;
-   static const uint32_t super_ver = 1;
-   uint32_t magic;
-   uint32_t version;
-   uint32_t header_size;
-   uint32_t footer_size;
+  static const uint32_t super_magic = 0xcef4ace5;
+  static const uint32_t super_ver = 1;
+  uint32_t magic;
+  uint32_t version;
+  uint32_t header_size;
+  uint32_t footer_size;
+
+  int read_super();
 
   void encode(bufferlist& bl) const {
     ::encode(magic, bl);
@@ -88,10 +90,13 @@ struct super_header {
 };
 
 struct header {
-  mytype_t type;
+  sectiontype_t type;
   mysize_t size;
-  header(mytype_t type, mysize_t size) :
+  header(sectiontype_t type, mysize_t size) :
     type(type), size(size) { }
+  header(): type(0), size(0) { }
+
+  int get_header();
 
   void encode(bufferlist& bl) const {
     ENCODE_START(1, 1, bl);
@@ -111,6 +116,8 @@ struct footer {
   mymagic_t magic;
   footer() : magic(themagic) { }
 
+  int get_footer();
+
   void encode(bufferlist& bl) const {
     ENCODE_START(1, 1, bl);
     ::encode(magic, bl);
@@ -119,7 +126,6 @@ struct footer {
   void decode(bufferlist::iterator& bl) {
     DECODE_START(1, bl);
     ::decode(magic, bl);
-    assert(magic == themagic);
     DECODE_FINISH(bl);
   }
 };
@@ -128,6 +134,7 @@ struct pg_begin {
   pg_t pgid;
 
   pg_begin(pg_t pg): pgid(pg) { }
+  pg_begin() { }
 
   void encode(bufferlist& bl) const {
     ENCODE_START(1, 1, bl);
@@ -277,9 +284,10 @@ hobject_t biginfo_oid, log_oid;
 
 int file_fd = fd_none;
 bool debug;
+super_header sh;
 
 template <typename T>
-int write_section(mytype_t type, const T& obj, int fd) {
+int write_section(sectiontype_t type, const T& obj, int fd) {
   // with error returns as appropriate!
   //catch exceptions?
   bufferlist blhdr, bl, blftr;
@@ -295,7 +303,7 @@ int write_section(mytype_t type, const T& obj, int fd) {
   return 0;
 }
 
-int write_simple(mytype_t type, int fd)
+int write_simple(sectiontype_t type, int fd)
 {
   // with error returns as appropriate!
   //catch exceptions?
@@ -311,7 +319,6 @@ static void
 corrupt()
 {
   cout << "Corrupt input for import" << std::endl;
-  exit(1);
 }
 
 static void invalid_path(string &path)
@@ -440,6 +447,46 @@ int initiate_new_remove_pg(ObjectStore *store, pg_t r_pgid, uint64_t *next_remov
   rmt->remove(coll_t::META_COLL, biginfo_oid);
 
   store->apply_transaction(*rmt);
+
+  return 0;
+}
+
+int header::get_header()
+{
+  bufferlist ebl;
+  bufferlist::iterator ebliter = ebl.begin();
+  ssize_t bytes;
+
+  bytes = ebl.read_fd(file_fd, sh.header_size);
+  if (bytes != sh.header_size) {
+    corrupt();
+    return 1;
+  }
+
+  decode(ebliter);
+
+  return 0;
+}
+
+int footer::get_footer()
+{
+  bufferlist ebl;
+  bufferlist::iterator ebliter = ebl.begin();
+  ssize_t bytes;
+
+  bytes = ebl.read_fd(file_fd, sh.footer_size);
+  if (bytes != sh.footer_size) {
+    corrupt();
+    return 1;
+  }
+
+  decode(ebliter);
+
+  if (magic != themagic) {
+    if (debug)
+      cout << "Bad footer magic" << std::endl;
+    return 1;
+  }
 
   return 0;
 }
@@ -598,7 +645,7 @@ int export_files(ObjectStore *store, coll_t coll)
 void get_section(bufferlist &ebl, bufferlist::iterator &ebliter)
 {
   int bytes;
-  mysize_t size;
+  ssize_t size;
 
   bytes = ebl.read_fd(file_fd, sizeof(size));
   if (bytes != sizeof(size))
@@ -607,7 +654,7 @@ void get_section(bufferlist &ebl, bufferlist::iterator &ebliter)
   ::decode(size, ebliter);
 
   do {
-    mysize_t read_len = size;
+    ssize_t read_len = size;
     if (read_len > max_read)
       read_len = max_read;
     
@@ -625,7 +672,7 @@ int import_files(ObjectStore *store, coll_t coll)
     bufferlist ebl;
     bufferlist::iterator ebliter = ebl.begin();
     mysize_t hobjdatlen;
-    mysize_t bytes;
+    ssize_t bytes;
     hobject_t hobj;
     ObjectStore::Transaction tran;
     ObjectStore::Transaction *t = &tran;
@@ -639,7 +686,7 @@ int import_files(ObjectStore *store, coll_t coll)
   
     ::decode(hobjdatlen, ebliter);
   
-    mysize_t read_len = hobjdatlen;
+    ssize_t read_len = hobjdatlen;
     if (read_len > max_read)
       read_len = max_read;
   
@@ -809,6 +856,122 @@ int do_export(ObjectStore *fs, coll_t coll, pg_t pgid, pg_info_t &info,
   return 0;
 }
 
+int super_header::read_super()
+{
+  bufferlist ebl;
+  bufferlist::iterator ebliter = ebl.begin();
+  ssize_t bytes;
+
+  bytes = ebl.read_fd(file_fd, sizeof(super_header));
+  if (bytes != sizeof(super_header)) {
+    corrupt();
+    return 1;
+  }
+
+  decode(ebliter);
+
+  return 0;
+}
+
+int do_import()
+{
+  bufferlist ebl;
+  bufferlist::iterator ebliter = ebl.begin();
+  pg_info_t info;
+  PG::IndexedLog log;
+  //epoch_t epoch;
+  header hdr;
+  int bytes;
+
+  int ret = sh.read_super();
+  if (ret)
+    return ret;
+
+  ret = hdr.get_header();
+  if (ret)
+    return ret;
+  assert(hdr.type == TYPE_PG_BEGIN);
+
+  bytes = ebl.read_fd(file_fd, hdr.size);
+  if (bytes != hdr.size) {
+    corrupt();
+    return 1;
+  }
+
+  pg_begin pgb;
+  pgb.decode(ebliter);
+  cout << "pgid=" << pgb.pgid << std::endl;
+
+  footer ft;
+  ret = ft.get_footer();
+  if (ret)
+    return ret;
+
+  exit(0);
+
+#if 0
+  ::decode(epoch, ebliter);
+
+  info.decode(ebliter);
+  pgid = info.pgid;
+  coll_t coll(pgid);
+  cout << "Importing pgid " << pgid << std::endl;
+  log_oid = OSD::make_pg_log_oid(pgid);
+  biginfo_oid = OSD::make_pg_biginfo_oid(pgid);
+
+  log.decode(ebliter);
+ 
+  //XXX: Check for PG already present.  Require use to remove before import
+
+  //XXX: Should somehow write everything to a temporary location
+
+  ObjectStore::Transaction *t = new ObjectStore::Transaction;
+
+  write_pg(*t, epoch, info, log);
+  fs->apply_transaction(*t);
+  delete t;
+
+  t = new ObjectStore::Transaction;
+  t->create_collection(coll);
+  fs->apply_transaction(*t);
+  delete t;
+
+  {
+    bufferlist ebl, infobl;
+    bufferlist::iterator ebliter = ebl.begin();
+    
+    get_section(ebl, ebliter);
+
+    ebliter.copy(ebliter.get_remaining(), infobl);
+
+    ObjectStore::Transaction *t = new ObjectStore::Transaction;
+    t->collection_setattr(coll, "info", infobl);
+
+    fs->apply_transaction(*t);
+    delete t;
+  }
+
+  import_files(fs, coll);
+
+  //XXX: Rename pg into place?  I don't think this can be a single rename
+
+#if DIAGNOSTIC
+  cout << "epoch " << epoch << std::endl;
+  formatter->open_object_section("info");
+  info.dump(formatter);
+  formatter->close_section();
+  formatter->flush(cout);
+  cout << std::endl;
+  
+  formatter->open_object_section("log");
+  log.dump(formatter);
+  formatter->close_section();
+  formatter->flush(cout);
+  cout << std::endl;
+#endif
+  return 0;
+#endif
+}
 
 int main(int argc, char **argv)
 {
@@ -983,80 +1146,14 @@ int main(int argc, char **argv)
   infos_oid = OSD::make_infos_oid();
 
   if (type == "import") {
-    bufferlist ebl;
-    bufferlist::iterator ebliter = ebl.begin();
-    pg_info_t info;
-    PG::IndexedLog log;
-    epoch_t epoch;
-
 #if 0
-    if (getuid() != 0 || getgid() != 0) {
-      cout << "Please use sudo to import" << std::endl;
-      exit(1);
-    }
+  if (getuid() != 0 || getgid() != 0) {
+    cout << "Please use sudo to import" << std::endl;
+    exit(1);
+  }
 #endif
 
-    get_section(ebl, ebliter);
-
-    ::decode(epoch, ebliter);
-
-    info.decode(ebliter);
-    pgid = info.pgid;
-    coll_t coll(pgid);
-    cout << "Importing pgid " << pgid << std::endl;
-    log_oid = OSD::make_pg_log_oid(pgid);
-    biginfo_oid = OSD::make_pg_biginfo_oid(pgid);
-
-    log.decode(ebliter);
- 
-    //XXX: Check for PG already present.  Require use to remove before import
-
-    //XXX: Should somehow write everything to a temporary location
-
-    ObjectStore::Transaction *t = new ObjectStore::Transaction;
-
-    write_pg(*t, epoch, info, log);
-    fs->apply_transaction(*t);
-    delete t;
-
-    t = new ObjectStore::Transaction;
-    t->create_collection(coll);
-    fs->apply_transaction(*t);
-    delete t;
-
-    {
-      bufferlist ebl, infobl;
-      bufferlist::iterator ebliter = ebl.begin();
-      
-      get_section(ebl, ebliter);
-
-      ebliter.copy(ebliter.get_remaining(), infobl);
-
-      ObjectStore::Transaction *t = new ObjectStore::Transaction;
-      t->collection_setattr(coll, "info", infobl);
-
-      fs->apply_transaction(*t);
-      delete t;
-    }
-
-    import_files(fs, coll);
-
-    //XXX: Rename pg into place?  I don't think this can be a single rename
-
-#if DIAGNOSTIC
-    cout << "epoch " << epoch << std::endl;
-    formatter->open_object_section("info");
-    info.dump(formatter);
-    formatter->close_section();
-    formatter->flush(cout);
-    cout << std::endl;
-    
-    formatter->open_object_section("log");
-    log.dump(formatter);
-    formatter->close_section();
-    formatter->flush(cout);
-    cout << std::endl;
-#endif
+    ret = do_import();
     goto out;
   }
 
