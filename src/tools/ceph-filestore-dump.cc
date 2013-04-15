@@ -49,7 +49,7 @@ enum {
     TYPE_ATTRS = 0x77777777,
     TYPE_OMAP = 0x88888888,
     TYPE_PG_METADATA = 0x99999999,
-    TYPE_HDR_OMAP = 0xaaaaaaaa,
+    TYPE_OMAP_HDR = 0xaaaaaaaa,
 };
 
 typedef uint32_t mytype_t;
@@ -180,21 +180,66 @@ struct data {
   }
 };
 
-struct omap_section {
+struct snaps_section {
+  bufferlist data;
+  snaps_section(bufferlist data) : data(data) { }
+
+  void encode(bufferlist& bl) const {
+    ENCODE_START(1, 1, bl);
+    ::encode(data, bl);
+    ENCODE_FINISH(bl);
+  }
+  void decode(bufferlist::iterator& bl) {
+    DECODE_START(1, bl);
+    ::decode(data, bl);
+    DECODE_FINISH(bl);
+  }
+};
+
+struct attr_section {
+  bufferlist data;
+  attr_section(bufferlist data) : data(data) { }
+
+  void encode(bufferlist& bl) const {
+    ENCODE_START(1, 1, bl);
+    ::encode(data, bl);
+    ENCODE_FINISH(bl);
+  }
+  void decode(bufferlist::iterator& bl) {
+    DECODE_START(1, bl);
+    ::decode(data, bl);
+    DECODE_FINISH(bl);
+  }
+};
+
+struct omap_hdr_section {
   bufferlist hdr;
-  map<string, bufferlist> omap;
-  omap_section(bufferlist hdr, map<string, bufferlist> omap) :
-    hdr(hdr), omap(omap) { }
+  omap_hdr_section(bufferlist hdr) : hdr(hdr) { }
 
   void encode(bufferlist& bl) const {
     ENCODE_START(1, 1, bl);
     ::encode(hdr, bl);
-    ::encode(omap, bl);
     ENCODE_FINISH(bl);
   }
   void decode(bufferlist::iterator& bl) {
     DECODE_START(1, bl);
     ::decode(hdr, bl);
+    DECODE_FINISH(bl);
+  }
+};
+
+struct omap_section {
+  map<string, bufferlist> omap;
+  omap_section(map<string, bufferlist> omap) :
+    omap(omap) { }
+
+  void encode(bufferlist& bl) const {
+    ENCODE_START(1, 1, bl);
+    ::encode(omap, bl);
+    ENCODE_FINISH(bl);
+  }
+  void decode(bufferlist::iterator& bl) {
+    DECODE_START(1, bl);
     ::decode(omap, bl);
     DECODE_FINISH(bl);
   }
@@ -232,6 +277,35 @@ hobject_t biginfo_oid, log_oid;
 
 int file_fd = fd_none;
 bool debug;
+
+template <typename T>
+int write_section(mytype_t type, const T& obj, int fd) {
+  // with error returns as appropriate!
+  //catch exceptions?
+  bufferlist blhdr, bl, blftr;
+  obj.encode(bl);
+  header hdr(type, bl.length());
+  hdr.encode(blhdr);
+  footer ft;
+  ft.encode(blftr);
+
+  blhdr.write_fd(fd);
+  bl.write_fd(fd);
+  blftr.write_fd(fd);
+  return 0;
+}
+
+int write_simple(mytype_t type, int fd)
+{
+  // with error returns as appropriate!
+  //catch exceptions?
+  bufferlist hbl;
+
+  header hdr(type, 0);
+  hdr.encode(hbl);
+  hbl.write_fd(fd);
+  return 0;
+}
 
 static void
 corrupt()
@@ -403,7 +477,6 @@ int export_file(ObjectStore *store, coll_t cid, hobject_t &obj)
   struct stat st;
   mysize_t total;
   ostringstream objname;
-  bufferlist ftbl;
   footer ft;
 
   int ret = store->stat(cid, obj, &st);
@@ -418,17 +491,8 @@ int export_file(ObjectStore *store, coll_t cid, hobject_t &obj)
   if (debug && file_fd != STDOUT_FILENO)
     cout << "size=" << total << std::endl;
 
-  bufferlist obl, hbl, fbl;
   object_begin objb(obj);
-  objb.encode(obl);
-
-  header hdr(TYPE_OBJECT_BEGIN, obl.length());
-  hdr.encode(hbl);
-  ft.encode(fbl);
-
-  hbl.write_fd(file_fd);
-  obl.write_fd(file_fd);
-  fbl.write_fd(file_fd);
+  ret = write_section<object_begin>(TYPE_OBJECT_BEGIN, objb, file_fd);
 
   uint64_t offset = 0;
   bufferlist rawdatabl, databl;
@@ -447,15 +511,7 @@ int export_file(ObjectStore *store, coll_t cid, hobject_t &obj)
     total -= ret;
 
     data dblock(offset, len, rawdatabl);
-    dblock.encode(databl);
-
-    hbl.clear();
-    header dhdr(TYPE_DATA, databl.length());
-    dhdr.encode(hbl);
-
-    hbl.write_fd(file_fd);
-    databl.write_fd(file_fd);
-    fbl.write_fd(file_fd);
+    ret = write_section<data>(TYPE_DATA, dblock, file_fd);
 
     if (debug && file_fd != STDOUT_FILENO)
       cout << "data section offset=" << offset << " len=" << len << std::endl;
@@ -466,13 +522,10 @@ int export_file(ObjectStore *store, coll_t cid, hobject_t &obj)
   databl.clear();
   store->getattr(cid, obj, SS_ATTR, databl);
   if (databl.length() > 0) {
-    hbl.clear();
-    header hdr(TYPE_SNAPS, databl.length());
-    hdr.encode(hbl);
-
-    hbl.write_fd(file_fd);
-    databl.write_fd(file_fd);
-    fbl.write_fd(file_fd);
+    snaps_section ss(databl);
+    ret = write_section<snaps_section>(TYPE_SNAPS, ss, file_fd);
+    if (ret)
+      return ret;
 
     if (debug && file_fd != STDOUT_FILENO)
       cout << "snapshot data length " << databl.length() << std::endl;
@@ -482,13 +535,10 @@ int export_file(ObjectStore *store, coll_t cid, hobject_t &obj)
   databl.clear();
   store->getattr(cid, obj, OI_ATTR, databl);
   if (databl.length() > 0) {
-    hbl.clear();
-    header hdr(TYPE_ATTRS, databl.length());
-    hdr.encode(hbl);
-
-    hbl.write_fd(file_fd);
-    databl.write_fd(file_fd);
-    fbl.write_fd(file_fd);
+    attr_section as(databl);
+    ret = write_section<attr_section>(TYPE_ATTRS, as, file_fd);
+    if (ret)
+      return ret;
 
     if (debug && file_fd != STDOUT_FILENO)
       cout << "attrs data length " << databl.length() << std::endl;
@@ -502,25 +552,24 @@ int export_file(ObjectStore *store, coll_t cid, hobject_t &obj)
   if (ret < 0)
     return ret;
 
-  omap_section oms(hdrbuf, out);
-  oms.encode(databl);
-  if (databl.length() > 0) {
-    header hdr(TYPE_OMAP, databl.length());
-    hbl.clear();
-    hdr.encode(hbl);
+  omap_hdr_section ohs(hdrbuf);
+  ret = write_section<omap_hdr_section>(TYPE_OMAP_HDR, ohs, file_fd);
+  if (ret)
+    return ret;
 
-    hbl.write_fd(file_fd);
-    databl.write_fd(file_fd);
-    fbl.write_fd(file_fd);
+  if (out.size() > 0) {
+    omap_section oms(out);
+    ret = write_section<omap_section>(TYPE_OMAP, oms, file_fd);
+    if (ret)
+      return ret;
 
     if (debug && file_fd != STDOUT_FILENO)
-      cout << "omap data length " << databl.length() << std::endl;
+      cout << "omap map size " << out.size() << std::endl;
   }
 
-  header ehdr(TYPE_OBJECT_END, 0);
-  hbl.clear();
-  ehdr.encode(hbl);
-  hbl.write_fd(file_fd);
+  ret = write_simple(TYPE_OBJECT_END, file_fd);
+  if (ret)
+    return ret;
 
   return 0;
 }
@@ -730,8 +779,6 @@ int do_export(ObjectStore *fs, coll_t coll, pg_t pgid, pg_info_t &info,
   PG::IndexedLog log;
   pg_missing_t missing;
   bufferlist collattrbl;
-  bufferlist ftbl;
-  footer ft;
 
   int ret = get_log(fs, coll, pgid, info, log, missing);
   if (ret > 0)
@@ -743,40 +790,21 @@ int do_export(ObjectStore *fs, coll_t coll, pg_t pgid, pg_info_t &info,
 
   write_super();
 
-  bufferlist pgbl, hbl, fbl;
   pg_begin pgb(pgid);
-  pgb.encode(pgbl);
+  ret = write_section<pg_begin>(TYPE_PG_BEGIN, pgb, file_fd);
+  if (ret)
+    return ret;
 
-  header hdr(TYPE_PG_BEGIN, pgbl.length());
-  hdr.encode(hbl);
-
-  ft.encode(fbl);
-
-  //Before 
-
-  hbl.write_fd(file_fd);
-  pgbl.write_fd(file_fd);
-  fbl.write_fd(file_fd);
-  
   export_files(fs, coll);
 
-  bufferlist metabl;
   metadata_section ms(map_epoch, info, log, collattrbl);
+  ret = write_section<metadata_section>(TYPE_PG_METADATA, ms, file_fd);
+  if (ret)
+    return ret;
 
-  ms.encode(metabl);
-
-  hbl.clear();
-  header mhdr(TYPE_PG_METADATA, metabl.length());
-  mhdr.encode(hbl);
-  
-  hbl.write_fd(file_fd);
-  metabl.write_fd(file_fd);
-  fbl.write_fd(file_fd);
-
-  header ehdr(TYPE_PG_END, 0);
-  hbl.clear();
-  ehdr.encode(hbl);
-  hbl.write_fd(file_fd);
+  ret = write_simple(TYPE_PG_END, file_fd);
+  if (ret)
+    return ret;
 
   return 0;
 }
