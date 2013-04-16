@@ -227,6 +227,7 @@ struct attr_section {
 struct omap_hdr_section {
   bufferlist hdr;
   omap_hdr_section(bufferlist hdr) : hdr(hdr) { }
+  omap_hdr_section() { }
 
   void encode(bufferlist& bl) const {
     ENCODE_START(1, 1, bl);
@@ -953,6 +954,20 @@ int get_attrs(ObjectStore *store, coll_t coll, hobject_t hoid, bufferlist &bl)
   return 0;
 }
 
+int get_omap_hdr(ObjectStore *store, coll_t coll, hobject_t hoid, bufferlist &bl)
+{
+  ObjectStore::Transaction tran;
+  ObjectStore::Transaction *t = &tran;
+  bufferlist::iterator ebliter = bl.begin();
+  omap_hdr_section oh;
+  oh.decode(ebliter);
+
+  cout << "\t\t\tget_omap_hdr: header " << string(oh.hdr.c_str(), oh.hdr.length()) << std::endl;
+  t->omap_setheader(coll, hoid, oh.hdr);
+  store->apply_transaction(*t);
+  return 0;
+}
+
 int get_object(ObjectStore *store, coll_t coll, bufferlist &bl)
 {
   ObjectStore::Transaction tran;
@@ -994,6 +1009,9 @@ int get_object(ObjectStore *store, coll_t coll, bufferlist &bl)
       if (ret) return ret;
       break;
     case TYPE_OMAP_HDR:
+      ret = get_omap_hdr(store, coll, ob.hoid, ebl);
+      if (ret) return ret;
+      break;
     case TYPE_OMAP:
       break;
     case TYPE_OBJECT_END:
