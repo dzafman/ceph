@@ -912,59 +912,51 @@ int read_section(int fd, sectiontype_t *type, bufferlist &bl)
   return 0;
 }
 
-int get_data(ObjectStore *store, coll_t coll, hobject_t hoid, bufferlist &bl)
+int get_data(ObjectStore *store, coll_t coll, hobject_t hoid,
+    ObjectStore::Transaction *t, bufferlist &bl)
 {
-  ObjectStore::Transaction tran;
-  ObjectStore::Transaction *t = &tran;
   bufferlist::iterator ebliter = bl.begin();
   data ds;
   ds.decode(ebliter);
 
   cout << "\t\t\tget_data: offset " << ds.offset << " len " << ds.len << std::endl;
   t->write(coll, hoid, ds.offset, ds.len,  ds.databl);
-  store->apply_transaction(*t);
   return 0;
 }
 
-int get_snaps(ObjectStore *store, coll_t coll, hobject_t hoid, bufferlist &bl)
+int get_snaps(ObjectStore *store, coll_t coll, hobject_t hoid,
+    ObjectStore::Transaction *t, bufferlist &bl)
 {
-  ObjectStore::Transaction tran;
-  ObjectStore::Transaction *t = &tran;
   bufferlist::iterator ebliter = bl.begin();
   snaps_section ss;
   ss.decode(ebliter);
 
   cout << "\t\t\tget_snaps: len " << ss.data.length() << std::endl;
   t->setattr(coll, hoid, SS_ATTR, ss.data);
-  store->apply_transaction(*t);
   return 0;
 }
 
-int get_attrs(ObjectStore *store, coll_t coll, hobject_t hoid, bufferlist &bl)
+int get_attrs(ObjectStore *store, coll_t coll, hobject_t hoid,
+    ObjectStore::Transaction *t, bufferlist &bl)
 {
-  ObjectStore::Transaction tran;
-  ObjectStore::Transaction *t = &tran;
   bufferlist::iterator ebliter = bl.begin();
   attr_section as;
   as.decode(ebliter);
 
   cout << "\t\t\tget_attrs: len " << as.data.length() << std::endl;
   t->setattr(coll, hoid, OI_ATTR, as.data);
-  store->apply_transaction(*t);
   return 0;
 }
 
-int get_omap_hdr(ObjectStore *store, coll_t coll, hobject_t hoid, bufferlist &bl)
+int get_omap_hdr(ObjectStore *store, coll_t coll, hobject_t hoid,
+    ObjectStore::Transaction *t, bufferlist &bl)
 {
-  ObjectStore::Transaction tran;
-  ObjectStore::Transaction *t = &tran;
   bufferlist::iterator ebliter = bl.begin();
   omap_hdr_section oh;
   oh.decode(ebliter);
 
   cout << "\t\t\tget_omap_hdr: header " << string(oh.hdr.c_str(), oh.hdr.length()) << std::endl;
   t->omap_setheader(coll, hoid, oh.hdr);
-  store->apply_transaction(*t);
   return 0;
 }
 
@@ -977,7 +969,6 @@ int get_object(ObjectStore *store, coll_t coll, bufferlist &bl)
   ob.decode(ebliter);
 
   t->touch(coll, ob.hoid);
-  store->apply_transaction(*t);
 
   if (true || debug) {
     ostringstream objname;
@@ -997,19 +988,19 @@ int get_object(ObjectStore *store, coll_t coll, bufferlist &bl)
     cout << "\t\tsection size " << ebl.length() << std::endl;
     switch(type) {
     case TYPE_DATA:
-      ret = get_data(store, coll, ob.hoid, ebl);
+      ret = get_data(store, coll, ob.hoid, t, ebl);
       if (ret) return ret;
       break;
     case TYPE_SNAPS:
-      ret = get_snaps(store, coll, ob.hoid, ebl);
+      ret = get_snaps(store, coll, ob.hoid, t, ebl);
       if (ret) return ret;
       break;
     case TYPE_ATTRS:
-      ret = get_attrs(store, coll, ob.hoid, ebl);
+      ret = get_attrs(store, coll, ob.hoid, t, ebl);
       if (ret) return ret;
       break;
     case TYPE_OMAP_HDR:
-      ret = get_omap_hdr(store, coll, ob.hoid, ebl);
+      ret = get_omap_hdr(store, coll, ob.hoid, t, ebl);
       if (ret) return ret;
       break;
     case TYPE_OMAP:
@@ -1025,6 +1016,7 @@ int get_object(ObjectStore *store, coll_t coll, bufferlist &bl)
       return EINVAL;
     }
   }
+  store->apply_transaction(*t);
   return 0;
 }
 
