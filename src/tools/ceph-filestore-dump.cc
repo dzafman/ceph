@@ -152,6 +152,7 @@ struct pg_begin {
 struct object_begin {
   hobject_t hoid;
   object_begin(hobject_t &hoid): hoid(hoid) { }
+  object_begin() { }
 
   void encode(bufferlist& bl) const {
     ENCODE_START(1, 1, bl);
@@ -171,6 +172,7 @@ struct data {
   bufferlist databl;
   data(uint64_t offset, uint64_t len, bufferlist bl):
      offset(offset), len(len), databl(bl) { }
+  data(): offset(0), len(0) { }
 
   void encode(bufferlist& bl) const {
     ENCODE_START(1, 1, bl);
@@ -557,14 +559,16 @@ int export_file(ObjectStore *store, coll_t cid, hobject_t &obj)
       return ret;
     if (ret == 0)
       return -EINVAL;
-    total -= ret;
 
     data dblock(offset, len, rawdatabl);
-    ret = write_section<data>(TYPE_DATA, dblock, file_fd);
+    total -= ret;
+    offset += ret;
 
     if (debug && file_fd != STDOUT_FILENO)
       cout << "data section offset=" << offset << " len=" << len << std::endl;
-    offset += ret;
+
+    ret = write_section<data>(TYPE_DATA, dblock, file_fd);
+    if (ret) return ret;
   }
 
   //Handle snapshots for this object
@@ -644,6 +648,7 @@ int export_files(ObjectStore *store, coll_t coll)
   return 0;
 }
 
+#if 0
 void get_section(bufferlist &ebl, bufferlist::iterator &ebliter)
 {
   int bytes;
@@ -798,6 +803,7 @@ int import_files(ObjectStore *store, coll_t coll)
 
   return 0;
 }
+#endif
 
 //Write super_header with its fixed 16 byte length
 void write_super()
@@ -903,8 +909,37 @@ int read_section(int fd, sectiontype_t *type, bufferlist &bl)
   return 0;
 }
 
-int get_object(ObjectStore *store, coll_t coll)
+int get_data(ObjectStore *store, coll_t coll, hobject_t hoid, bufferlist &bl)
 {
+  ObjectStore::Transaction tran;
+  ObjectStore::Transaction *t = &tran;
+  bufferlist::iterator ebliter = bl.begin();
+  data ds;
+  ds.decode(ebliter);
+
+  cout << "\t\t\tget_data: offset " << ds.offset << " len " << ds.len << std::endl;
+  t->write(coll, hoid, ds.offset, ds.len,  ds.databl);
+  store->apply_transaction(*t);
+  return 0;
+}
+
+int get_object(ObjectStore *store, coll_t coll, bufferlist &bl)
+{
+  ObjectStore::Transaction tran;
+  ObjectStore::Transaction *t = &tran;
+  bufferlist::iterator ebliter = bl.begin();
+  object_begin ob;
+  ob.decode(ebliter);
+
+  t->touch(coll, ob.hoid);
+  store->apply_transaction(*t);
+
+  if (true || debug) {
+    ostringstream objname;
+    objname << ob.hoid.oid;
+    cout << "\tdo_object: name " << objname.str() << std::endl;
+  }
+
   bufferlist ebl;
   bool done = false;
   while(!done) {
@@ -913,14 +948,17 @@ int get_object(ObjectStore *store, coll_t coll)
     if (ret)
       return ret;
 
-    cout << "\tdo_object: Section type " << hex << type << std::endl;
+    cout << "\tdo_object: Section type " << hex << type << dec << std::endl;
+    cout << "\t\tsection size " << ebl.length() << std::endl;
     switch(type) {
     case TYPE_DATA:
+      ret = get_data(store, coll, ob.hoid, ebl);
+      if (ret) return ret;
+      break;
     case TYPE_SNAPS:
     case TYPE_ATTRS:
     case TYPE_OMAP_HDR:
     case TYPE_OMAP:
-      cout << "\t\tsection size " << ebl.length() << std::endl;
       break;
     case TYPE_OBJECT_END:
       done = true;
@@ -1002,7 +1040,7 @@ int do_import(ObjectStore *store)
     cout << "do_import: Section type " << hex << type << std::endl;
     switch(type) {
     case TYPE_OBJECT_BEGIN:
-      get_object(store, rmcoll);
+      get_object(store, rmcoll, ebl);
       break;
     case TYPE_PG_METADATA:
       //get_pg_metadata();
