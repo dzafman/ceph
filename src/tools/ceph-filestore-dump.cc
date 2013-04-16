@@ -166,13 +166,13 @@ struct object_begin {
   }
 };
 
-struct data {
+struct data_section {
   uint64_t offset;
   uint64_t len;
   bufferlist databl;
-  data(uint64_t offset, uint64_t len, bufferlist bl):
+  data_section(uint64_t offset, uint64_t len, bufferlist bl):
      offset(offset), len(len), databl(bl) { }
-  data(): offset(0), len(0) { }
+  data_section(): offset(0), len(0) { }
 
   void encode(bufferlist& bl) const {
     ENCODE_START(1, 1, bl);
@@ -564,14 +564,14 @@ int export_file(ObjectStore *store, coll_t cid, hobject_t &obj)
     if (ret == 0)
       return -EINVAL;
 
-    data dblock(offset, len, rawdatabl);
+    data_section dblock(offset, len, rawdatabl);
     total -= ret;
     offset += ret;
 
     if (debug && file_fd != STDOUT_FILENO)
       cout << "data section offset=" << offset << " len=" << len << std::endl;
 
-    ret = write_section<data>(TYPE_DATA, dblock, file_fd);
+    ret = write_section<data_section>(TYPE_DATA, dblock, file_fd);
     if (ret) return ret;
   }
 
@@ -917,7 +917,7 @@ int get_data(ObjectStore *store, coll_t coll, hobject_t hoid,
     ObjectStore::Transaction *t, bufferlist &bl)
 {
   bufferlist::iterator ebliter = bl.begin();
-  data ds;
+  data_section ds;
   ds.decode(ebliter);
 
   cout << "\t\t\tget_data: offset " << ds.offset << " len " << ds.len << std::endl;
