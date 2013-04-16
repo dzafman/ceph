@@ -47,15 +47,16 @@ enum {
     TYPE_DATA = 0x55555555,
     TYPE_SNAPS = 0x66666666,
     TYPE_ATTRS = 0x77777777,
-    TYPE_OMAP = 0x88888888,
-    TYPE_PG_METADATA = 0x99999999,
-    TYPE_OMAP_HDR = 0xaaaaaaaa,
+    TYPE_OMAP_HDR = 0x88888888,
+    TYPE_OMAP = 0x99999999,
+    TYPE_PG_METADATA = 0xaaaaaaaa,
 };
 
 typedef uint32_t sectiontype_t;
 typedef uint32_t mymagic_t;
 typedef int64_t mysize_t;
-const ssize_t max_read = 1024 * 1024;
+//const ssize_t max_read = 1024 * 1024;
+const ssize_t max_read = 1 * 1024;	//FIX AFTER TESTING
 const mymagic_t themagic = 0xdeadbeef;
 const int fd_none = INT_MIN;
 
@@ -483,6 +484,7 @@ int footer::get_footer()
   decode(ebliter);
 
   if (magic != themagic) {
+    corrupt();
     if (debug)
       cout << "Bad footer magic" << std::endl;
     return 1;
@@ -873,57 +875,156 @@ int super_header::read_super()
   return 0;
 }
 
-int do_import()
+int read_section(int fd, sectiontype_t *type, bufferlist &bl)
 {
-  bufferlist ebl;
-  bufferlist::iterator ebliter = ebl.begin();
-  pg_info_t info;
-  PG::IndexedLog log;
-  //epoch_t epoch;
   header hdr;
-  int bytes;
+  ssize_t bytes;
 
-  int ret = sh.read_super();
+  int ret = hdr.get_header();
   if (ret)
     return ret;
 
-  ret = hdr.get_header();
-  if (ret)
-    return ret;
-  assert(hdr.type == TYPE_PG_BEGIN);
+  *type = hdr.type;
 
-  bytes = ebl.read_fd(file_fd, hdr.size);
+  bl.clear();
+  bytes = bl.read_fd(fd, hdr.size);
   if (bytes != hdr.size) {
     corrupt();
     return 1;
   }
 
-  pg_begin pgb;
-  pgb.decode(ebliter);
-  cout << "pgid=" << pgb.pgid << std::endl;
+  if (hdr.size > 0) {
+    footer ft;
+    ret = ft.get_footer();
+    if (ret)
+      return ret;
+  }
 
-  footer ft;
-  ret = ft.get_footer();
+  return 0;
+}
+
+int get_object(ObjectStore *store, coll_t coll)
+{
+  bufferlist ebl;
+  bool done = false;
+  while(!done) {
+    sectiontype_t type;
+    int ret = read_section(file_fd, &type, ebl);
+    if (ret)
+      return ret;
+
+    cout << "\tdo_object: Section type " << hex << type << std::endl;
+    switch(type) {
+    case TYPE_DATA:
+    case TYPE_SNAPS:
+    case TYPE_ATTRS:
+    case TYPE_OMAP_HDR:
+    case TYPE_OMAP:
+      cout << "\t\tsection size " << ebl.length() << std::endl;
+      break;
+    case TYPE_OBJECT_END:
+      done = true;
+      break;
+    case TYPE_PG_METADATA:
+    case TYPE_PG_END:
+    case TYPE_OBJECT_BEGIN:
+      //Didn't see OBJECT_END
+      corrupt();
+      return EINVAL;
+    }
+  }
+  return 0;
+}
+
+int do_import(ObjectStore *store)
+{
+  bufferlist ebl;
+  pg_info_t info;
+  PG::IndexedLog log;
+  //epoch_t epoch;
+
+  uint64_t next_removal_seq = 0;	//My local seq
+  finish_remove_pgs(store, &next_removal_seq);
+
+  int ret = sh.read_super();
   if (ret)
     return ret;
 
-  exit(0);
+  if (sh.magic != super_header::super_magic) {
+    cout << "Invalid magic number" << std::endl;
+    return EINVAL;
+  }
+
+  if (sh.version > super_header::super_ver) {
+    cout << "Can't handle export format version=" << sh.version << std::endl;
+    return EINVAL;
+  }
+
+  //First section must be TYPE_PG_BEGIN
+  sectiontype_t type;
+  ret = read_section(file_fd, &type, ebl);
+  if (type != TYPE_PG_BEGIN) {
+    corrupt();
+    return EINVAL;
+  }
+
+  bufferlist::iterator ebliter = ebl.begin();
+  pg_begin pgb;
+  pgb.decode(ebliter);
+  pg_t pgid = pgb.pgid;
+  
+  log_oid = OSD::make_pg_log_oid(pgid);
+  biginfo_oid = OSD::make_pg_biginfo_oid(pgid);
+
+  //Check for PG already present.
+  coll_t coll(pgid);
+  if (store->collection_exists(coll)) {
+    cout << "pgid " << pgid << " already exists" << std::endl;
+    return 1;
+  }
+
+  //Switch to collection which will be removed automatically if
+  //this program is interupted.
+  coll_t rmcoll = coll_t::make_removal_coll(next_removal_seq, pgid);
+  ObjectStore::Transaction *t = new ObjectStore::Transaction;
+  t->create_collection(rmcoll);
+  store->apply_transaction(*t);
+  delete t;
+
+  cout << "Importing pgid " << pgid << std::endl;
+
+  bool done = false;
+  while(!done) {
+    ret = read_section(file_fd, &type, ebl);
+    if (ret)
+      return ret;
+
+    cout << "do_import: Section type " << hex << type << std::endl;
+    switch(type) {
+    case TYPE_OBJECT_BEGIN:
+      get_object(store, rmcoll);
+      break;
+    case TYPE_PG_METADATA:
+      //get_pg_metadata();
+      break;
+    case TYPE_PG_END:
+      done = true;
+      break;
+    }
+  }
+
+  return 0;
+
+  //XXX: Should somehow write everything to a temporary location
+  //import_files();
 
 #if 0
   ::decode(epoch, ebliter);
 
   info.decode(ebliter);
-  pgid = info.pgid;
-  coll_t coll(pgid);
-  cout << "Importing pgid " << pgid << std::endl;
-  log_oid = OSD::make_pg_log_oid(pgid);
-  biginfo_oid = OSD::make_pg_biginfo_oid(pgid);
 
   log.decode(ebliter);
  
-  //XXX: Check for PG already present.  Require use to remove before import
-
-  //XXX: Should somehow write everything to a temporary location
 
   ObjectStore::Transaction *t = new ObjectStore::Transaction;
 
@@ -932,9 +1033,6 @@ int do_import()
   delete t;
 
   t = new ObjectStore::Transaction;
-  t->create_collection(coll);
-  fs->apply_transaction(*t);
-  delete t;
 
   {
     bufferlist ebl, infobl;
@@ -1153,7 +1251,7 @@ int main(int argc, char **argv)
   }
 #endif
 
-    ret = do_import();
+    ret = do_import(fs);
     goto out;
   }
 
