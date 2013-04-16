@@ -260,7 +260,7 @@ struct omap_section {
 };
 
 struct metadata_section {
-  uint32_t struct_ver;
+  __u8 struct_ver;
   epoch_t map_epoch;
   pg_info_t info;
   pg_log_t log;
@@ -869,8 +869,15 @@ int get_object(ObjectStore *store, coll_t coll, bufferlist &bl)
     case TYPE_OBJECT_END:
       done = true;
       break;
-    default:
+    case TYPE_NONE:
+    case TYPE_PG_BEGIN:
+    case TYPE_PG_END:
+    case TYPE_OBJECT_BEGIN:
+    case TYPE_PG_METADATA:
       return EFAULT;
+    default:
+      cerr << "Skipping unknown object section type" << std::endl;
+      break;
     }
   }
   store->apply_transaction(*t);
@@ -887,7 +894,7 @@ int get_pg_metadata(ObjectStore *store, coll_t coll, bufferlist &bl)
 
 #if DIAGNOSTIC
   Formatter *formatter = new JSONFormatter(true);
-  cout << "struct_v " << ms.struct_ver << std::endl;
+  cout << "struct_v " << (int)ms.struct_ver << std::endl;
   cout << "epoch " << ms.map_epoch << std::endl;
   formatter->open_object_section("info");
   ms.info.dump(formatter);
@@ -978,7 +985,7 @@ int do_import(ObjectStore *store)
     if (ret)
       return ret;
 
-    cout << "do_import: Section type " << hex << type << std::endl;
+    cout << "do_import: Section type " << hex << type << dec << std::endl;
     switch(type) {
     case TYPE_OBJECT_BEGIN:
       ret = get_object(store, rmcoll, ebl);
@@ -992,8 +999,18 @@ int do_import(ObjectStore *store)
     case TYPE_PG_END:
       done = true;
       break;
-    default:
+    case TYPE_NONE:
+    case TYPE_PG_BEGIN:
+    case TYPE_OBJECT_END:
+    case TYPE_DATA:
+    case TYPE_SNAPS:
+    case TYPE_ATTRS:
+    case TYPE_OMAP_HDR:
+    case TYPE_OMAP:
       return EFAULT;
+    default:
+      cerr << "Skipping unknown section type" << std::endl;
+      break;
     }
   }
 
