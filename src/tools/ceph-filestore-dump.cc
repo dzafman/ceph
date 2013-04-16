@@ -260,16 +260,18 @@ struct omap_section {
 };
 
 struct metadata_section {
+  __u8 struct_v;
   epoch_t map_epoch;
   pg_info_t info;
   pg_log_t log;
   bufferlist collattr;
-  metadata_section(epoch_t map_epoch, pg_info_t info, pg_log_t log,
-      bufferlist collattr):
+  metadata_section(__u8 struct_v, epoch_t map_epoch, pg_info_t info, pg_log_t log,
+      bufferlist collattr): struct_v(struct_v),
     map_epoch(map_epoch), info(info), log(log), collattr(collattr) { }
 
   void encode(bufferlist& bl) const {
     ENCODE_START(1, 1, bl);
+    ::encode(struct_v, bl);
     ::encode(map_epoch, bl);
     ::encode(info, bl);
     ::encode(log, bl);
@@ -278,6 +280,7 @@ struct metadata_section {
   }
   void decode(bufferlist::iterator& bl) {
     DECODE_START(1, bl);
+    ::decode(struct_v, bl);
     ::decode(map_epoch, bl);
     ::decode(info, bl);
     ::decode(log, bl);
@@ -499,7 +502,8 @@ int footer::get_footer()
   return 0;
 }
 
-int write_info(ObjectStore::Transaction &t, epoch_t epoch, pg_info_t &info)
+int write_info(ObjectStore::Transaction &t, epoch_t epoch, pg_info_t &info,
+    __u8 struct_v)
 {
   //Empty for this
   interval_set<snapid_t> snap_collections; // obsolete
@@ -511,8 +515,8 @@ int write_info(ObjectStore::Transaction &t, epoch_t epoch, pg_info_t &info)
     past_intervals,
     snap_collections,
     infos_oid,
-    0,      //Get version (struct_v)
-    true);
+    struct_v,
+    true, true);
 }
 
 void write_log(ObjectStore::Transaction &t, pg_log_t &log)
@@ -521,10 +525,13 @@ void write_log(ObjectStore::Transaction &t, pg_log_t &log)
   PG::_write_log(t, log, log_oid, divergent_priors);
 }
 
-void write_pg(ObjectStore::Transaction &t, epoch_t epoch, pg_info_t &info, pg_log_t &log)
+int write_pg(ObjectStore::Transaction &t, epoch_t epoch, pg_info_t &info,
+    pg_log_t &log, __u8 struct_v)
 {
-  write_info(t, epoch, info);
+  int ret = write_info(t, epoch, info, struct_v);
+  if (ret) return ret;
   write_log(t, log);
+  return 0;
 }
 
 int export_file(ObjectStore *store, coll_t cid, hobject_t &obj)
@@ -652,163 +659,6 @@ int export_files(ObjectStore *store, coll_t coll)
   return 0;
 }
 
-#if 0
-void get_section(bufferlist &ebl, bufferlist::iterator &ebliter)
-{
-  int bytes;
-  ssize_t size;
-
-  bytes = ebl.read_fd(file_fd, sizeof(size));
-  if (bytes != sizeof(size))
-    corrupt();
-
-  ::decode(size, ebliter);
-
-  do {
-    ssize_t read_len = size;
-    if (read_len > max_read)
-      read_len = max_read;
-    
-    bytes = ebl.read_fd(file_fd, read_len);
-    if (bytes == 0)
-      corrupt();
-    size -= bytes;
-  } while(size > 0);
-  assert(size == 0);
-}
-
-int import_files(ObjectStore *store, coll_t coll)
-{
-  do {
-    bufferlist ebl;
-    bufferlist::iterator ebliter = ebl.begin();
-    mysize_t hobjdatlen;
-    ssize_t bytes;
-    hobject_t hobj;
-    ObjectStore::Transaction tran;
-    ObjectStore::Transaction *t = &tran;
-  
-    bytes = ebl.read_fd(file_fd, sizeof(hobjdatlen));
-    //See if are at EOF
-    if (bytes == 0)
-      break;
-    if (bytes != sizeof(hobjdatlen))
-      corrupt();
-  
-    ::decode(hobjdatlen, ebliter);
-  
-    ssize_t read_len = hobjdatlen;
-    if (read_len > max_read)
-      read_len = max_read;
-  
-    bytes = ebl.read_fd(file_fd, read_len);
-    if (bytes != read_len)
-      corrupt();
-  
-    ::decode(hobj, ebliter);
-  
-    t->touch(coll, hobj);
-    store->apply_transaction(*t);
-
-    if (debug) {
-      ostringstream objname;
-      objname << hobj;
-      cout << std::endl;
-      cout << "filename=" << objname.str() << std::endl;
-    }
-  
-    //CREATE NEW FILE AND WRITE REST OF ebl
-    bufferptr bp = ebliter.get_current_ptr();
-    if (debug)
-      cout << "data=" << string(bp.c_str(), bp.length());
-    mysize_t size = bp.length();
-    uint64_t off = 0;
-    bufferlist databl;
-    databl.push_front(bp);
-    t->write(coll, hobj, off, size,  databl);
-    off += size;
-  
-    hobjdatlen -= bytes;
-  
-    while(hobjdatlen > 0) {
-      bufferlist buf;
-      mysize_t read_len = hobjdatlen;
-      if (read_len > max_read)
-        read_len = max_read;
-  
-      bytes = buf.read_fd(file_fd, read_len);
-      if (bytes == 0)
-        corrupt();
-      hobjdatlen -= bytes;
-      assert(bytes == buf.length());
-  
-      //Write buf to file
-      if (debug)
-        cout << string(buf.c_str(), bytes);
-      t->write(coll, hobj, off, bytes,  buf);
-      size += bytes;
-      off += bytes;
-    }
-    if (debug) {
-      cout << std::endl;
-      cout << "size=" << size << std::endl;
-    }
-
-    //Get snapshots
-    {
-      bufferlist bl, vbl;
-      bufferlist::iterator bliter = bl.begin();
-
-      get_section(bl, bliter);
-
-      bufferptr bp = bliter.get_current_ptr();
-      vbl.push_front(bp);
-
-      t->setattr(coll, hobj, SS_ATTR, vbl);
-    }
-
-    //Get attributes
-    {
-      bufferlist bl, vbl;
-      bufferlist::iterator bliter = bl.begin();
-
-      get_section(bl, bliter);
-  
-      bufferptr bp = bliter.get_current_ptr();
-      vbl.push_front(bp);
-
-      t->setattr(coll, hobj, OI_ATTR, vbl);
-    }
-
-    {
-      bufferlist ebl;
-      bufferlist::iterator ebliter = ebl.begin();
-      bufferlist hdrbuf;
-      map<string, bufferlist> out;
-  
-      get_section(ebl, ebliter);
-
-      ::decode(hdrbuf, ebliter);
-      if (debug)
-        cout << "header=" << string(hdrbuf.c_str(), hdrbuf.length())
-          << std::endl;
-      ::decode(out, ebliter);
-      for (map<string, bufferlist>::iterator i = out.begin();
-         i != out.end();
-         ++i) {
-        if (debug)
-          cout << "key=" << i->first 
-             << " val=" << string(i->second.c_str(), i->second.length())
-             << std::endl;
-      }
-    }
-    store->apply_transaction(*t);
-  } while(true);
-
-  return 0;
-}
-#endif
-
 //Write super_header with its fixed 16 byte length
 void write_super()
 {
@@ -833,7 +683,7 @@ void write_super()
 }
 
 int do_export(ObjectStore *fs, coll_t coll, pg_t pgid, pg_info_t &info,
-    epoch_t map_epoch)
+    epoch_t map_epoch, __u8 struct_v)
 {
   PG::IndexedLog log;
   pg_missing_t missing;
@@ -856,7 +706,7 @@ int do_export(ObjectStore *fs, coll_t coll, pg_t pgid, pg_info_t &info,
 
   export_files(fs, coll);
 
-  metadata_section ms(map_epoch, info, log, collattrbl);
+  metadata_section ms(struct_v, map_epoch, info, log, collattrbl);
   ret = write_section<metadata_section>(TYPE_PG_METADATA, ms, file_fd);
   if (ret)
     return ret;
@@ -1023,10 +873,7 @@ int get_object(ObjectStore *store, coll_t coll, bufferlist &bl)
     case TYPE_OBJECT_END:
       done = true;
       break;
-    case TYPE_PG_METADATA:
-    case TYPE_PG_END:
-    case TYPE_OBJECT_BEGIN:
-      //Didn't see OBJECT_END
+    default:
       corrupt();
       return EINVAL;
     }
@@ -1101,21 +948,23 @@ int do_import(ObjectStore *store)
     cout << "do_import: Section type " << hex << type << std::endl;
     switch(type) {
     case TYPE_OBJECT_BEGIN:
-      get_object(store, rmcoll, ebl);
+      ret = get_object(store, rmcoll, ebl);
+      if (ret) return ret;
       break;
     case TYPE_PG_METADATA:
-      //get_pg_metadata();
+      //ret = get_pg_metadata();
+      //if (ret) return ret;
       break;
     case TYPE_PG_END:
       done = true;
       break;
+    default:
+      corrupt();
+      return EINVAL;
     }
   }
 
   return 0;
-
-  //XXX: Should somehow write everything to a temporary location
-  //import_files();
 
 #if 0
   ::decode(epoch, ebliter);
@@ -1127,7 +976,8 @@ int do_import(ObjectStore *store)
 
   ObjectStore::Transaction *t = new ObjectStore::Transaction;
 
-  write_pg(*t, epoch, info, log);
+  int ret = write_pg(*t, epoch, info, log);
+  if (ret) return ret;
   fs->apply_transaction(*t);
   delete t;
 
@@ -1425,7 +1275,7 @@ int main(int argc, char **argv)
       cerr << "struct_v " << (int)struct_v << std::endl;
 
     if (type == "export") {
-      ret = do_export(fs, coll, pgid, info, map_epoch);
+      ret = do_export(fs, coll, pgid, info, map_epoch, struct_v);
     } else if (type == "info") {
       formatter->open_object_section("info");
       info.dump(formatter);
