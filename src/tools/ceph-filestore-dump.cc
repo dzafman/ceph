@@ -193,6 +193,7 @@ struct data {
 struct snaps_section {
   bufferlist data;
   snaps_section(bufferlist data) : data(data) { }
+  snaps_section() { }
 
   void encode(bufferlist& bl) const {
     ENCODE_START(1, 1, bl);
@@ -209,6 +210,7 @@ struct snaps_section {
 struct attr_section {
   bufferlist data;
   attr_section(bufferlist data) : data(data) { }
+  attr_section() { }
 
   void encode(bufferlist& bl) const {
     ENCODE_START(1, 1, bl);
@@ -923,6 +925,34 @@ int get_data(ObjectStore *store, coll_t coll, hobject_t hoid, bufferlist &bl)
   return 0;
 }
 
+int get_snaps(ObjectStore *store, coll_t coll, hobject_t hoid, bufferlist &bl)
+{
+  ObjectStore::Transaction tran;
+  ObjectStore::Transaction *t = &tran;
+  bufferlist::iterator ebliter = bl.begin();
+  snaps_section ss;
+  ss.decode(ebliter);
+
+  cout << "\t\t\tget_snaps: len " << ss.data.length() << std::endl;
+  t->setattr(coll, hoid, SS_ATTR, ss.data);
+  store->apply_transaction(*t);
+  return 0;
+}
+
+int get_attrs(ObjectStore *store, coll_t coll, hobject_t hoid, bufferlist &bl)
+{
+  ObjectStore::Transaction tran;
+  ObjectStore::Transaction *t = &tran;
+  bufferlist::iterator ebliter = bl.begin();
+  attr_section as;
+  as.decode(ebliter);
+
+  cout << "\t\t\tget_attrs: len " << as.data.length() << std::endl;
+  t->setattr(coll, hoid, OI_ATTR, as.data);
+  store->apply_transaction(*t);
+  return 0;
+}
+
 int get_object(ObjectStore *store, coll_t coll, bufferlist &bl)
 {
   ObjectStore::Transaction tran;
@@ -956,7 +986,13 @@ int get_object(ObjectStore *store, coll_t coll, bufferlist &bl)
       if (ret) return ret;
       break;
     case TYPE_SNAPS:
+      ret = get_snaps(store, coll, ob.hoid, ebl);
+      if (ret) return ret;
+      break;
     case TYPE_ATTRS:
+      ret = get_attrs(store, coll, ob.hoid, ebl);
+      if (ret) return ret;
+      break;
     case TYPE_OMAP_HDR:
     case TYPE_OMAP:
       break;
