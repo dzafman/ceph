@@ -260,18 +260,19 @@ struct omap_section {
 };
 
 struct metadata_section {
-  __u8 struct_v;
+  uint32_t struct_ver;
   epoch_t map_epoch;
   pg_info_t info;
   pg_log_t log;
   bufferlist collattr;
-  metadata_section(__u8 struct_v, epoch_t map_epoch, pg_info_t info, pg_log_t log,
-      bufferlist collattr): struct_v(struct_v),
+  metadata_section(__u8 struct_ver, epoch_t map_epoch, pg_info_t info, pg_log_t log,
+      bufferlist collattr): struct_ver(struct_ver),
     map_epoch(map_epoch), info(info), log(log), collattr(collattr) { }
+  metadata_section() { }
 
   void encode(bufferlist& bl) const {
     ENCODE_START(1, 1, bl);
-    ::encode(struct_v, bl);
+    ::encode(struct_ver, bl);
     ::encode(map_epoch, bl);
     ::encode(info, bl);
     ::encode(log, bl);
@@ -280,7 +281,7 @@ struct metadata_section {
   }
   void decode(bufferlist::iterator& bl) {
     DECODE_START(1, bl);
-    ::decode(struct_v, bl);
+    ::decode(struct_ver, bl);
     ::decode(map_epoch, bl);
     ::decode(info, bl);
     ::decode(log, bl);
@@ -323,12 +324,6 @@ int write_simple(sectiontype_t type, int fd)
   hdr.encode(hbl);
   hbl.write_fd(fd);
   return 0;
-}
-
-static void
-corrupt()
-{
-  cout << "Corrupt input for import" << std::endl;
 }
 
 static void invalid_path(string &path)
@@ -469,8 +464,8 @@ int header::get_header()
 
   bytes = ebl.read_fd(file_fd, sh.header_size);
   if (bytes != sh.header_size) {
-    corrupt();
-    return 1;
+    cout << "Unexpected EOF" << std::endl;
+    return EFAULT;
   }
 
   decode(ebliter);
@@ -486,37 +481,38 @@ int footer::get_footer()
 
   bytes = ebl.read_fd(file_fd, sh.footer_size);
   if (bytes != sh.footer_size) {
-    corrupt();
-    return 1;
+    cout << "Unexpected EOF" << std::endl;
+    return EFAULT;
   }
 
   decode(ebliter);
 
   if (magic != themagic) {
-    corrupt();
-    if (debug)
-      cout << "Bad footer magic" << std::endl;
-    return 1;
+    cout << "Bad footer magic" << std::endl;
+    return EFAULT;
   }
 
   return 0;
 }
 
 int write_info(ObjectStore::Transaction &t, epoch_t epoch, pg_info_t &info,
-    __u8 struct_v)
+    __u8 struct_ver)
 {
   //Empty for this
   interval_set<snapid_t> snap_collections; // obsolete
   map<epoch_t,pg_interval_t> past_intervals;
   coll_t coll(info.pgid);
 
-  return PG::_write_info(t, epoch,
+  int ret = PG::_write_info(t, epoch,
     info, coll,
     past_intervals,
     snap_collections,
     infos_oid,
-    struct_v,
+    struct_ver,
     true, true);
+  if (ret < 0) ret = -ret;
+  if (ret) cout << "Failed to write info" << std::endl;
+  return ret;
 }
 
 void write_log(ObjectStore::Transaction &t, pg_log_t &log)
@@ -526,9 +522,9 @@ void write_log(ObjectStore::Transaction &t, pg_log_t &log)
 }
 
 int write_pg(ObjectStore::Transaction &t, epoch_t epoch, pg_info_t &info,
-    pg_log_t &log, __u8 struct_v)
+    pg_log_t &log, __u8 struct_ver)
 {
-  int ret = write_info(t, epoch, info, struct_v);
+  int ret = write_info(t, epoch, info, struct_ver);
   if (ret) return ret;
   write_log(t, log);
   return 0;
@@ -683,7 +679,7 @@ void write_super()
 }
 
 int do_export(ObjectStore *fs, coll_t coll, pg_t pgid, pg_info_t &info,
-    epoch_t map_epoch, __u8 struct_v)
+    epoch_t map_epoch, __u8 struct_ver)
 {
   PG::IndexedLog log;
   pg_missing_t missing;
@@ -706,7 +702,7 @@ int do_export(ObjectStore *fs, coll_t coll, pg_t pgid, pg_info_t &info,
 
   export_files(fs, coll);
 
-  metadata_section ms(struct_v, map_epoch, info, log, collattrbl);
+  metadata_section ms(struct_ver, map_epoch, info, log, collattrbl);
   ret = write_section<metadata_section>(TYPE_PG_METADATA, ms, file_fd);
   if (ret)
     return ret;
@@ -726,8 +722,8 @@ int super_header::read_super()
 
   bytes = ebl.read_fd(file_fd, sizeof(super_header));
   if (bytes != sizeof(super_header)) {
-    corrupt();
-    return 1;
+    cout << "Unexpected EOF" << std::endl;
+    return EFAULT;
   }
 
   decode(ebliter);
@@ -749,8 +745,8 @@ int read_section(int fd, sectiontype_t *type, bufferlist &bl)
   bl.clear();
   bytes = bl.read_fd(fd, hdr.size);
   if (bytes != hdr.size) {
-    corrupt();
-    return 1;
+    cout << "Unexpected EOF" << std::endl;
+    return EFAULT;
   }
 
   if (hdr.size > 0) {
@@ -874,11 +870,48 @@ int get_object(ObjectStore *store, coll_t coll, bufferlist &bl)
       done = true;
       break;
     default:
-      corrupt();
-      return EINVAL;
+      return EFAULT;
     }
   }
   store->apply_transaction(*t);
+  return 0;
+}
+
+int get_pg_metadata(ObjectStore *store, coll_t coll, bufferlist &bl)
+{
+  ObjectStore::Transaction tran;
+  ObjectStore::Transaction *t = &tran;
+  bufferlist::iterator ebliter = bl.begin();
+  metadata_section ms;
+  ms.decode(ebliter);
+
+#if DIAGNOSTIC
+  Formatter *formatter = new JSONFormatter(true);
+  cout << "struct_v " << ms.struct_ver << std::endl;
+  cout << "epoch " << ms.map_epoch << std::endl;
+  formatter->open_object_section("info");
+  ms.info.dump(formatter);
+  formatter->close_section();
+  formatter->flush(cout);
+  cout << std::endl;
+  
+  formatter->open_object_section("log");
+  ms.log.dump(formatter);
+  formatter->close_section();
+  formatter->flush(cout);
+  cout << std::endl;
+#endif
+
+  int ret = write_pg(*t, ms.map_epoch, ms.info, ms.log, ms.struct_ver);
+  if (ret) return ret;
+
+  t->collection_setattr(coll, "info", ms.collattr);
+
+  coll_t newcoll(ms.info.pgid);
+  t->collection_rename(coll, newcoll);
+
+  store->apply_transaction(*t);
+
   return 0;
 }
 
@@ -898,7 +931,7 @@ int do_import(ObjectStore *store)
 
   if (sh.magic != super_header::super_magic) {
     cout << "Invalid magic number" << std::endl;
-    return EINVAL;
+    return EFAULT;
   }
 
   if (sh.version > super_header::super_ver) {
@@ -910,8 +943,7 @@ int do_import(ObjectStore *store)
   sectiontype_t type;
   ret = read_section(file_fd, &type, ebl);
   if (type != TYPE_PG_BEGIN) {
-    corrupt();
-    return EINVAL;
+    return EFAULT;
   }
 
   bufferlist::iterator ebliter = ebl.begin();
@@ -940,6 +972,7 @@ int do_import(ObjectStore *store)
   cout << "Importing pgid " << pgid << std::endl;
 
   bool done = false;
+  bool found_metadata = false;
   while(!done) {
     ret = read_section(file_fd, &type, ebl);
     if (ret)
@@ -952,72 +985,24 @@ int do_import(ObjectStore *store)
       if (ret) return ret;
       break;
     case TYPE_PG_METADATA:
-      //ret = get_pg_metadata();
-      //if (ret) return ret;
+      ret = get_pg_metadata(store, rmcoll, ebl);
+      if (ret) return ret;
+      found_metadata = true;
       break;
     case TYPE_PG_END:
       done = true;
       break;
     default:
-      corrupt();
-      return EINVAL;
+      return EFAULT;
     }
   }
 
-  return 0;
-
-#if 0
-  ::decode(epoch, ebliter);
-
-  info.decode(ebliter);
-
-  log.decode(ebliter);
- 
-
-  ObjectStore::Transaction *t = new ObjectStore::Transaction;
-
-  int ret = write_pg(*t, epoch, info, log);
-  if (ret) return ret;
-  fs->apply_transaction(*t);
-  delete t;
-
-  t = new ObjectStore::Transaction;
-
-  {
-    bufferlist ebl, infobl;
-    bufferlist::iterator ebliter = ebl.begin();
-    
-    get_section(ebl, ebliter);
-
-    ebliter.copy(ebliter.get_remaining(), infobl);
-
-    ObjectStore::Transaction *t = new ObjectStore::Transaction;
-    t->collection_setattr(coll, "info", infobl);
-
-    fs->apply_transaction(*t);
-    delete t;
+  if (!found_metadata) {
+    cout << "Missing metadata section" << std::endl;
+    return EFAULT;
   }
 
-  import_files(fs, coll);
-
-  //XXX: Rename pg into place?  I don't think this can be a single rename
-
-#if DIAGNOSTIC
-  cout << "epoch " << epoch << std::endl;
-  formatter->open_object_section("info");
-  info.dump(formatter);
-  formatter->close_section();
-  formatter->flush(cout);
-  cout << std::endl;
-  
-  formatter->open_object_section("log");
-  log.dump(formatter);
-  formatter->close_section();
-  formatter->flush(cout);
-  cout << std::endl;
-#endif
   return 0;
-#endif
 }
 
 int main(int argc, char **argv)
@@ -1201,6 +1186,9 @@ int main(int argc, char **argv)
 #endif
 
     ret = do_import(fs);
+    if (ret == EFAULT) {
+      cout << "Corrupt input for import" << std::endl;
+    }
     goto out;
   }
 
@@ -1263,19 +1251,19 @@ int main(int argc, char **argv)
     hobject_t biginfo_oid = OSD::make_pg_biginfo_oid(pgid);
     interval_set<snapid_t> snap_collections;
   
-    __u8 struct_v;
+    __u8 struct_ver;
     r = PG::read_info(fs, coll, bl, info, past_intervals, biginfo_oid,
-      infos_oid, snap_collections, struct_v);
+      infos_oid, snap_collections, struct_ver);
     if (r < 0) {
       cout << "read_info error " << cpp_strerror(-r) << std::endl;
       ret = 1;
       goto out;
     }
     if (debug)
-      cerr << "struct_v " << (int)struct_v << std::endl;
+      cerr << "struct_v " << (int)struct_ver << std::endl;
 
     if (type == "export") {
-      ret = do_export(fs, coll, pgid, info, map_epoch, struct_v);
+      ret = do_export(fs, coll, pgid, info, map_epoch, struct_ver);
     } else if (type == "info") {
       formatter->open_object_section("info");
       info.dump(formatter);
@@ -1311,6 +1299,6 @@ out:
     return 1;
   }
 
-  return ret;
+  return (ret != 0);
 }
 
