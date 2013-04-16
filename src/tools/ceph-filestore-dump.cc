@@ -342,7 +342,7 @@ int get_log(ObjectStore *fs, coll_t coll, pg_t pgid, const pg_info_t &info,
       cerr << oss.str() << std::endl;
   }
   catch (const buffer::error &e) {
-    cout << "read_log threw exception error", e.what();
+    cout << "read_log threw exception error " << e.what() << std::endl;
     return 1;
   }
   return 0;
@@ -1206,7 +1206,13 @@ int main(int argc, char **argv)
   }
 #endif
 
-    ret = do_import(fs);
+    try {
+      ret = do_import(fs);
+    }
+    catch (const buffer::error &e) {
+      cout << "do_import threw exception error " << e.what() << std::endl;
+      ret = EFAULT;
+    }
     if (ret == EFAULT) {
       cout << "Corrupt input for import" << std::endl;
     }
