@@ -55,8 +55,7 @@ enum {
 typedef uint32_t sectiontype_t;
 typedef uint32_t mymagic_t;
 typedef int64_t mysize_t;
-//const ssize_t max_read = 1024 * 1024;
-const ssize_t max_read = 1 * 1024;	//FIX AFTER TESTING
+const ssize_t max_read = 1024 * 1024;
 const mymagic_t themagic = 0xdeadbeef;
 const int fd_none = INT_MIN;
 
@@ -766,7 +765,8 @@ int get_data(ObjectStore *store, coll_t coll, hobject_t hoid,
   data_section ds;
   ds.decode(ebliter);
 
-  cout << "\t\t\tget_data: offset " << ds.offset << " len " << ds.len << std::endl;
+  if (debug)
+    cout << "\tdata: offset " << ds.offset << " len " << ds.len << std::endl;
   t->write(coll, hoid, ds.offset, ds.len,  ds.databl);
   return 0;
 }
@@ -778,7 +778,8 @@ int get_snaps(ObjectStore *store, coll_t coll, hobject_t hoid,
   snaps_section ss;
   ss.decode(ebliter);
 
-  cout << "\t\t\tget_snaps: len " << ss.data.length() << std::endl;
+  if (debug)
+    cout << "\tsnapshots: len " << ss.data.length() << std::endl;
   t->setattr(coll, hoid, SS_ATTR, ss.data);
   return 0;
 }
@@ -790,7 +791,8 @@ int get_attrs(ObjectStore *store, coll_t coll, hobject_t hoid,
   attr_section as;
   as.decode(ebliter);
 
-  cout << "\t\t\tget_attrs: len " << as.data.length() << std::endl;
+  if (debug)
+    cout << "\tattrs: len " << as.data.length() << std::endl;
   t->setattr(coll, hoid, OI_ATTR, as.data);
   return 0;
 }
@@ -802,7 +804,8 @@ int get_omap_hdr(ObjectStore *store, coll_t coll, hobject_t hoid,
   omap_hdr_section oh;
   oh.decode(ebliter);
 
-  cout << "\t\t\tget_omap_hdr: header " << string(oh.hdr.c_str(), oh.hdr.length()) << std::endl;
+  if (debug)
+    cout << "\tomap header: " << string(oh.hdr.c_str(), oh.hdr.length()) << std::endl;
   t->omap_setheader(coll, hoid, oh.hdr);
   return 0;
 }
@@ -814,7 +817,8 @@ int get_omap(ObjectStore *store, coll_t coll, hobject_t hoid,
   omap_section os;
   os.decode(ebliter);
 
-  cout << "\t\t\tget_omap: map size " << os.omap.size() << std::endl;
+  if (debug)
+    cout << "\tomap: size " << os.omap.size() << std::endl;
   t->omap_setkeys(coll, hoid, os.omap);
   return 0;
 }
@@ -829,10 +833,10 @@ int get_object(ObjectStore *store, coll_t coll, bufferlist &bl)
 
   t->touch(coll, ob.hoid);
 
-  if (true || debug) {
+  if (debug) {
     ostringstream objname;
     objname << ob.hoid.oid;
-    cout << "\tdo_object: name " << objname.str() << std::endl;
+    cout << "name " << objname.str() << std::endl;
   }
 
   bufferlist ebl;
@@ -843,8 +847,8 @@ int get_object(ObjectStore *store, coll_t coll, bufferlist &bl)
     if (ret)
       return ret;
 
-    cout << "\tdo_object: Section type " << hex << type << dec << std::endl;
-    cout << "\t\tsection size " << ebl.length() << std::endl;
+    //cout << "\tdo_object: Section type " << hex << type << dec << std::endl;
+    //cout << "\t\tsection size " << ebl.length() << std::endl;
     switch(type) {
     case TYPE_DATA:
       ret = get_data(store, coll, ob.hoid, t, ebl);
@@ -876,7 +880,7 @@ int get_object(ObjectStore *store, coll_t coll, bufferlist &bl)
     case TYPE_PG_METADATA:
       return EFAULT;
     default:
-      cerr << "Skipping unknown object section type" << std::endl;
+      cout << "Skipping unknown object section type" << std::endl;
       break;
     }
   }
@@ -985,7 +989,7 @@ int do_import(ObjectStore *store)
     if (ret)
       return ret;
 
-    cout << "do_import: Section type " << hex << type << dec << std::endl;
+    //cout << "do_import: Section type " << hex << type << dec << std::endl;
     switch(type) {
     case TYPE_OBJECT_BEGIN:
       ret = get_object(store, rmcoll, ebl);
@@ -1009,7 +1013,7 @@ int do_import(ObjectStore *store)
     case TYPE_OMAP:
       return EFAULT;
     default:
-      cerr << "Skipping unknown section type" << std::endl;
+      cout << "Skipping unknown section type" << std::endl;
       break;
     }
   }
