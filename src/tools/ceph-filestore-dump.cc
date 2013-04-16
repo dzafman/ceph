@@ -245,6 +245,7 @@ struct omap_section {
   map<string, bufferlist> omap;
   omap_section(map<string, bufferlist> omap) :
     omap(omap) { }
+  omap_section() { }
 
   void encode(bufferlist& bl) const {
     ENCODE_START(1, 1, bl);
@@ -960,6 +961,18 @@ int get_omap_hdr(ObjectStore *store, coll_t coll, hobject_t hoid,
   return 0;
 }
 
+int get_omap(ObjectStore *store, coll_t coll, hobject_t hoid,
+    ObjectStore::Transaction *t, bufferlist &bl)
+{
+  bufferlist::iterator ebliter = bl.begin();
+  omap_section os;
+  os.decode(ebliter);
+
+  cout << "\t\t\tget_omap: map size " << os.omap.size() << std::endl;
+  t->omap_setkeys(coll, hoid, os.omap);
+  return 0;
+}
+
 int get_object(ObjectStore *store, coll_t coll, bufferlist &bl)
 {
   ObjectStore::Transaction tran;
@@ -1004,6 +1017,8 @@ int get_object(ObjectStore *store, coll_t coll, bufferlist &bl)
       if (ret) return ret;
       break;
     case TYPE_OMAP:
+      ret = get_omap(store, coll, ob.hoid, t, ebl);
+      if (ret) return ret;
       break;
     case TYPE_OBJECT_END:
       done = true;
