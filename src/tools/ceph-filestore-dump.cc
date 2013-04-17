@@ -739,7 +739,7 @@ int get_data(ObjectStore *store, coll_t coll, hobject_t hoid,
 }
 
 int get_attrs(ObjectStore *store, coll_t coll, hobject_t hoid,
-    ObjectStore::Transaction *t, bufferlist &bl)
+    ObjectStore::Transaction *t, bufferlist &bl, SnapMapper &snap_mapper)
 {
   bufferlist::iterator ebliter = bl.begin();
   attr_section as;
@@ -748,6 +748,24 @@ int get_attrs(ObjectStore *store, coll_t coll, hobject_t hoid,
   if (debug)
     cout << "\tattrs: len " << as.data.size() << std::endl;
   t->setattrs(coll, hoid, as.data);
+
+  if (hoid.snap < CEPH_MAXSNAP) {
+    map<string,bufferptr>::iterator mi = as.data.find(OI_ATTR);
+    if (mi != as.data.end()) {
+      bufferlist attr_bl;
+      attr_bl.push_back(mi->second);
+      object_info_t oi(attr_bl);
+  
+      if (debug)
+        cout << "object_info " << oi << std::endl;
+  
+      OSDriver osdriver(store, coll, hoid);
+      OSDriver::OSTransaction _t(osdriver.get_transaction(t));
+      set<snapid_t> oi_snaps(oi.snaps.begin(), oi.snaps.end());
+      snap_mapper.add_oid(hoid, oi_snaps, &_t);
+    }
+  }
+
   return 0;
 }
 
@@ -784,6 +802,11 @@ int get_object(ObjectStore *store, coll_t coll, bufferlist &bl)
   bufferlist::iterator ebliter = bl.begin();
   object_begin ob;
   ob.decode(ebliter);
+  OSDriver driver(
+    store,
+    coll_t(),
+    OSD::make_snapmapper_oid());
+  SnapMapper mapper(&driver, 0, 0, 0);
 
   t->touch(coll, ob.hoid);
 
@@ -813,7 +836,7 @@ int get_object(ObjectStore *store, coll_t coll, bufferlist &bl)
       if (ret) return ret;
       break;
     case TYPE_ATTRS:
-      ret = get_attrs(store, coll, ob.hoid, t, ebl);
+      ret = get_attrs(store, coll, ob.hoid, t, ebl, mapper);
       if (ret) return ret;
       break;
     case TYPE_OMAP_HDR:
@@ -878,7 +901,6 @@ int do_import(ObjectStore *store)
   bufferlist ebl;
   pg_info_t info;
   PG::IndexedLog log;
-  //epoch_t epoch;
 
   uint64_t next_removal_seq = 0;	//My local seq
   finish_remove_pgs(store, &next_removal_seq);
