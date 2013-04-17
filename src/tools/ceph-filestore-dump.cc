@@ -52,11 +52,12 @@ enum {
     END_OF_TYPES,	//Keep at the end
 };
 
-typedef uint32_t sectiontype_t;
+typedef uint8_t sectiontype_t;
 typedef uint32_t mymagic_t;
 typedef int64_t mysize_t;
 const ssize_t max_read = 1024 * 1024;
-const mymagic_t themagic = 0xdeadbeef;
+const uint16_t shortmagic = 0xffce;	//goes into stream as "ceff"
+const mymagic_t endmagic = (0xecff << 16) | shortmagic;	//goes into stream as "ceff ffec"
 const int fd_none = INT_MIN;
 
 //The first sizeof(super_header) bytes are a fixed
@@ -66,7 +67,7 @@ const int fd_none = INT_MIN;
 //the version can be bumped and then anything
 //can be added to the export format.
 struct super_header {
-  static const uint32_t super_magic = 0xcef4ace5;
+  static const uint32_t super_magic = (shortmagic << 16) | shortmagic;
   static const uint32_t super_ver = 1;
   uint32_t magic;
   uint32_t version;
@@ -99,14 +100,17 @@ struct header {
   int get_header();
 
   void encode(bufferlist& bl) const {
+    uint32_t debug_type = (type << 24) | (type << 16) | shortmagic;
     ENCODE_START(1, 1, bl);
-    ::encode(type, bl);
+    ::encode(debug_type, bl);
     ::encode(size, bl);
     ENCODE_FINISH(bl);
   }
   void decode(bufferlist::iterator& bl) {
+    uint32_t debug_type;
     DECODE_START(1, bl);
-    ::decode(type, bl);
+    ::decode(debug_type, bl);
+    type = debug_type >> 24;
     ::decode(size, bl);
     DECODE_FINISH(bl);
   }
@@ -114,7 +118,7 @@ struct header {
 
 struct footer {
   mymagic_t magic;
-  footer() : magic(themagic) { }
+  footer() : magic(endmagic) { }
 
   int get_footer();
 
@@ -466,7 +470,7 @@ int footer::get_footer()
 
   decode(ebliter);
 
-  if (magic != themagic) {
+  if (magic != endmagic) {
     cout << "Bad footer magic" << std::endl;
     return EFAULT;
   }
