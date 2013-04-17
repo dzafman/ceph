@@ -40,16 +40,16 @@ using namespace std;
 
 enum {
     TYPE_NONE = 0,
-    TYPE_PG_BEGIN = 0x11111111,
-    TYPE_PG_END = 0x22222222,
-    TYPE_OBJECT_BEGIN = 0x33333333,
-    TYPE_OBJECT_END = 0x44444444,
-    TYPE_DATA = 0x55555555,
-    TYPE_SNAPS = 0x66666666,
-    TYPE_ATTRS = 0x77777777,
-    TYPE_OMAP_HDR = 0x88888888,
-    TYPE_OMAP = 0x99999999,
-    TYPE_PG_METADATA = 0xaaaaaaaa,
+    TYPE_PG_BEGIN,
+    TYPE_PG_END,
+    TYPE_OBJECT_BEGIN,
+    TYPE_OBJECT_END,
+    TYPE_DATA,
+    TYPE_ATTRS,
+    TYPE_OMAP_HDR,
+    TYPE_OMAP,
+    TYPE_PG_METADATA,
+    END_OF_TYPES,	//Keep at the end
 };
 
 typedef uint32_t sectiontype_t;
@@ -189,26 +189,9 @@ struct data_section {
   }
 };
 
-struct snaps_section {
-  bufferlist data;
-  snaps_section(bufferlist data) : data(data) { }
-  snaps_section() { }
-
-  void encode(bufferlist& bl) const {
-    ENCODE_START(1, 1, bl);
-    ::encode(data, bl);
-    ENCODE_FINISH(bl);
-  }
-  void decode(bufferlist::iterator& bl) {
-    DECODE_START(1, bl);
-    ::decode(data, bl);
-    DECODE_FINISH(bl);
-  }
-};
-
 struct attr_section {
-  bufferlist data;
-  attr_section(bufferlist data) : data(data) { }
+  map<string,bufferptr> data;
+  attr_section(map<string,bufferptr> data) : data(data) { }
   attr_section() { }
 
   void encode(bufferlist& bl) const {
@@ -298,8 +281,6 @@ super_header sh;
 
 template <typename T>
 int write_section(sectiontype_t type, const T& obj, int fd) {
-  // with error returns as appropriate!
-  //catch exceptions?
   bufferlist blhdr, bl, blftr;
   obj.encode(bl);
   header hdr(type, bl.length());
@@ -307,22 +288,21 @@ int write_section(sectiontype_t type, const T& obj, int fd) {
   footer ft;
   ft.encode(blftr);
 
-  blhdr.write_fd(fd);
-  bl.write_fd(fd);
-  blftr.write_fd(fd);
-  return 0;
+  int ret = blhdr.write_fd(fd);
+  if (ret) return ret;
+  ret = bl.write_fd(fd);
+  if (ret) return ret;
+  ret = blftr.write_fd(fd);
+  return ret;
 }
 
 int write_simple(sectiontype_t type, int fd)
 {
-  // with error returns as appropriate!
-  //catch exceptions?
   bufferlist hbl;
 
   header hdr(type, 0);
   hdr.encode(hbl);
-  hbl.write_fd(fd);
-  return 0;
+  return hbl.write_fd(fd);
 }
 
 static void invalid_path(string &path)
@@ -549,7 +529,7 @@ int export_file(ObjectStore *store, coll_t cid, hobject_t &obj)
     cout << "size=" << total << std::endl;
 
   object_begin objb(obj);
-  ret = write_section<object_begin>(TYPE_OBJECT_BEGIN, objb, file_fd);
+  ret = write_section(TYPE_OBJECT_BEGIN, objb, file_fd);
 
   uint64_t offset = 0;
   bufferlist rawdatabl, databl;
@@ -573,34 +553,21 @@ int export_file(ObjectStore *store, coll_t cid, hobject_t &obj)
     if (debug && file_fd != STDOUT_FILENO)
       cout << "data section offset=" << offset << " len=" << len << std::endl;
 
-    ret = write_section<data_section>(TYPE_DATA, dblock, file_fd);
+    ret = write_section(TYPE_DATA, dblock, file_fd);
     if (ret) return ret;
   }
 
-  //Handle snapshots for this object
-  databl.clear();
-  store->getattr(cid, obj, SS_ATTR, databl);
-  if (databl.length() > 0) {
-    snaps_section ss(databl);
-    ret = write_section<snaps_section>(TYPE_SNAPS, ss, file_fd);
-    if (ret)
-      return ret;
-
-    if (debug && file_fd != STDOUT_FILENO)
-      cout << "snapshot data length " << databl.length() << std::endl;
-  }
-
   //Handle attrs for this object
-  databl.clear();
-  store->getattr(cid, obj, OI_ATTR, databl);
-  if (databl.length() > 0) {
-    attr_section as(databl);
-    ret = write_section<attr_section>(TYPE_ATTRS, as, file_fd);
-    if (ret)
-      return ret;
+  map<string,bufferptr> aset;
+  ret = store->getattrs(cid, obj, aset, false);
+  if (ret) return ret;
+  attr_section as(aset);
+  ret = write_section(TYPE_ATTRS, as, file_fd);
+  if (ret)
+    return ret;
 
-    if (debug && file_fd != STDOUT_FILENO)
-      cout << "attrs data length " << databl.length() << std::endl;
+  if (debug && file_fd != STDOUT_FILENO) {
+    cout << "attrs size " << aset.size() << std::endl;
   }
 
   //Handle omap information
@@ -612,13 +579,13 @@ int export_file(ObjectStore *store, coll_t cid, hobject_t &obj)
     return ret;
 
   omap_hdr_section ohs(hdrbuf);
-  ret = write_section<omap_hdr_section>(TYPE_OMAP_HDR, ohs, file_fd);
+  ret = write_section(TYPE_OMAP_HDR, ohs, file_fd);
   if (ret)
     return ret;
 
   if (out.size() > 0) {
     omap_section oms(out);
-    ret = write_section<omap_section>(TYPE_OMAP, oms, file_fd);
+    ret = write_section(TYPE_OMAP, oms, file_fd);
     if (ret)
       return ret;
 
@@ -695,14 +662,14 @@ int do_export(ObjectStore *fs, coll_t coll, pg_t pgid, pg_info_t &info,
   write_super();
 
   pg_begin pgb(pgid);
-  ret = write_section<pg_begin>(TYPE_PG_BEGIN, pgb, file_fd);
+  ret = write_section(TYPE_PG_BEGIN, pgb, file_fd);
   if (ret)
     return ret;
 
   export_files(fs, coll);
 
   metadata_section ms(struct_ver, map_epoch, info, log, collattrbl);
-  ret = write_section<metadata_section>(TYPE_PG_METADATA, ms, file_fd);
+  ret = write_section(TYPE_PG_METADATA, ms, file_fd);
   if (ret)
     return ret;
 
@@ -730,7 +697,7 @@ int super_header::read_super()
   return 0;
 }
 
-int read_section(int fd, sectiontype_t *type, bufferlist &bl)
+int read_section(int fd, sectiontype_t *type, bufferlist *bl)
 {
   header hdr;
   ssize_t bytes;
@@ -741,8 +708,8 @@ int read_section(int fd, sectiontype_t *type, bufferlist &bl)
 
   *type = hdr.type;
 
-  bl.clear();
-  bytes = bl.read_fd(fd, hdr.size);
+  bl->clear();
+  bytes = bl->read_fd(fd, hdr.size);
   if (bytes != hdr.size) {
     cout << "Unexpected EOF" << std::endl;
     return EFAULT;
@@ -771,19 +738,6 @@ int get_data(ObjectStore *store, coll_t coll, hobject_t hoid,
   return 0;
 }
 
-int get_snaps(ObjectStore *store, coll_t coll, hobject_t hoid,
-    ObjectStore::Transaction *t, bufferlist &bl)
-{
-  bufferlist::iterator ebliter = bl.begin();
-  snaps_section ss;
-  ss.decode(ebliter);
-
-  if (debug)
-    cout << "\tsnapshots: len " << ss.data.length() << std::endl;
-  t->setattr(coll, hoid, SS_ATTR, ss.data);
-  return 0;
-}
-
 int get_attrs(ObjectStore *store, coll_t coll, hobject_t hoid,
     ObjectStore::Transaction *t, bufferlist &bl)
 {
@@ -792,8 +746,8 @@ int get_attrs(ObjectStore *store, coll_t coll, hobject_t hoid,
   as.decode(ebliter);
 
   if (debug)
-    cout << "\tattrs: len " << as.data.length() << std::endl;
-  t->setattr(coll, hoid, OI_ATTR, as.data);
+    cout << "\tattrs: len " << as.data.size() << std::endl;
+  t->setattrs(coll, hoid, as.data);
   return 0;
 }
 
@@ -843,19 +797,19 @@ int get_object(ObjectStore *store, coll_t coll, bufferlist &bl)
   bool done = false;
   while(!done) {
     sectiontype_t type;
-    int ret = read_section(file_fd, &type, ebl);
+    int ret = read_section(file_fd, &type, &ebl);
     if (ret)
       return ret;
 
     //cout << "\tdo_object: Section type " << hex << type << dec << std::endl;
     //cout << "\t\tsection size " << ebl.length() << std::endl;
+    if (type >= END_OF_TYPES) {
+      cout << "Skipping unknown object section type" << std::endl;
+      continue;
+    }
     switch(type) {
     case TYPE_DATA:
       ret = get_data(store, coll, ob.hoid, t, ebl);
-      if (ret) return ret;
-      break;
-    case TYPE_SNAPS:
-      ret = get_snaps(store, coll, ob.hoid, t, ebl);
       if (ret) return ret;
       break;
     case TYPE_ATTRS:
@@ -873,15 +827,8 @@ int get_object(ObjectStore *store, coll_t coll, bufferlist &bl)
     case TYPE_OBJECT_END:
       done = true;
       break;
-    case TYPE_NONE:
-    case TYPE_PG_BEGIN:
-    case TYPE_PG_END:
-    case TYPE_OBJECT_BEGIN:
-    case TYPE_PG_METADATA:
-      return EFAULT;
     default:
-      cout << "Skipping unknown object section type" << std::endl;
-      break;
+      return EFAULT;
     }
   }
   store->apply_transaction(*t);
@@ -952,7 +899,7 @@ int do_import(ObjectStore *store)
 
   //First section must be TYPE_PG_BEGIN
   sectiontype_t type;
-  ret = read_section(file_fd, &type, ebl);
+  ret = read_section(file_fd, &type, &ebl);
   if (type != TYPE_PG_BEGIN) {
     return EFAULT;
   }
@@ -985,11 +932,15 @@ int do_import(ObjectStore *store)
   bool done = false;
   bool found_metadata = false;
   while(!done) {
-    ret = read_section(file_fd, &type, ebl);
+    ret = read_section(file_fd, &type, &ebl);
     if (ret)
       return ret;
 
     //cout << "do_import: Section type " << hex << type << dec << std::endl;
+    if (type >= END_OF_TYPES) {
+      cout << "Skipping unknown section type" << std::endl;
+      continue;
+    }
     switch(type) {
     case TYPE_OBJECT_BEGIN:
       ret = get_object(store, rmcoll, ebl);
@@ -1003,18 +954,8 @@ int do_import(ObjectStore *store)
     case TYPE_PG_END:
       done = true;
       break;
-    case TYPE_NONE:
-    case TYPE_PG_BEGIN:
-    case TYPE_OBJECT_END:
-    case TYPE_DATA:
-    case TYPE_SNAPS:
-    case TYPE_ATTRS:
-    case TYPE_OMAP_HDR:
-    case TYPE_OMAP:
-      return EFAULT;
     default:
-      cout << "Skipping unknown section type" << std::endl;
-      break;
+      return EFAULT;
     }
   }
 
