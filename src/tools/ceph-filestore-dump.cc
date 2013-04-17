@@ -790,7 +790,7 @@ int get_object(ObjectStore *store, coll_t coll, bufferlist &bl)
   if (debug) {
     ostringstream objname;
     objname << ob.hoid.oid;
-    cout << "name " << objname.str() << std::endl;
+    cout << "name " << objname.str() << " snap " << ob.hoid.snap << std::endl;
   }
 
   bufferlist ebl;
@@ -1140,12 +1140,6 @@ int main(int argc, char **argv)
   infos_oid = OSD::make_infos_oid();
 
   if (type == "import") {
-#if 0
-  if (getuid() != 0 || getgid() != 0) {
-    cout << "Please use sudo to import" << std::endl;
-    exit(1);
-  }
-#endif
 
     try {
       ret = do_import(fs);
