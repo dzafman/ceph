@@ -743,7 +743,8 @@ int get_data(ObjectStore *store, coll_t coll, hobject_t hoid,
 }
 
 int get_attrs(ObjectStore *store, coll_t coll, hobject_t hoid,
-    ObjectStore::Transaction *t, bufferlist &bl, SnapMapper &snap_mapper)
+    ObjectStore::Transaction *t, bufferlist &bl,
+    OSDriver &driver, SnapMapper &snap_mapper)
 {
   bufferlist::iterator ebliter = bl.begin();
   attr_section as;
@@ -763,8 +764,7 @@ int get_attrs(ObjectStore *store, coll_t coll, hobject_t hoid,
       if (debug)
         cout << "object_info " << oi << std::endl;
   
-      OSDriver osdriver(store, coll, hoid);
-      OSDriver::OSTransaction _t(osdriver.get_transaction(t));
+      OSDriver::OSTransaction _t(driver.get_transaction(t));
       set<snapid_t> oi_snaps(oi.snaps.begin(), oi.snaps.end());
       snap_mapper.add_oid(hoid, oi_snaps, &_t);
     }
@@ -840,7 +840,7 @@ int get_object(ObjectStore *store, coll_t coll, bufferlist &bl)
       if (ret) return ret;
       break;
     case TYPE_ATTRS:
-      ret = get_attrs(store, coll, ob.hoid, t, ebl, mapper);
+      ret = get_attrs(store, coll, ob.hoid, t, ebl, driver, mapper);
       if (ret) return ret;
       break;
     case TYPE_OMAP_HDR:
