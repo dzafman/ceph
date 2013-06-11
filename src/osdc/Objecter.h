@@ -739,6 +739,7 @@ public:
     
     object_t oid;
     object_locator_t oloc;
+    string nspace;
 
     pg_t pgid;
     vector<int> acting;
@@ -988,6 +989,7 @@ public:
     uint64_t linger_id;
     object_t oid;
     object_locator_t oloc;
+    string nspace;
 
     pg_t pgid;
     vector<int> acting;

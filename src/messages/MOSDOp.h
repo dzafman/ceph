@@ -32,7 +32,7 @@ class OSD;
 
 class MOSDOp : public Message {
 
-  static const int HEAD_VERSION = 4;
+  static const int HEAD_VERSION = 5;
   static const int COMPAT_VERSION = 3;
 
 private:
@@ -46,6 +46,7 @@ private:
   object_t oid;
   object_locator_t oloc;
   pg_t pgid;
+  string nspace;
 public:
   vector<OSDOp> ops;
 private:
@@ -83,6 +84,8 @@ public:
   object_locator_t get_object_locator() const {
     return oloc;
   }
+
+  string& get_nspace() { return nspace; }
 
   epoch_t  get_map_epoch() { return osdmap_epoch; }
 
@@ -251,6 +254,7 @@ struct ceph_osd_request_head {
       ::encode(snaps, payload);
 
       ::encode(retry_attempt, payload);
+      ::encode(nspace, payload);
     }
   }
 
@@ -332,6 +336,8 @@ struct ceph_osd_request_head {
 	::decode(retry_attempt, p);
       else
 	retry_attempt = -1;
+      if (header.version >= 5)
+	::decode(nspace, p);
     }
 
     OSDOp::split_osd_op_vector_in_data(ops, data);

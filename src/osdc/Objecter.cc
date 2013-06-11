@@ -1284,7 +1284,7 @@ int Objecter::recalc_op_target(Op *op)
     if (!osdmap->have_pg_pool(pgid.pool()))
       return RECALC_OP_TARGET_POOL_DNE;
   } else {
-    int ret = osdmap->object_locator_to_pg(op->oid, op->oloc, pgid);
+    int ret = osdmap->object_locator_to_pg(op->oid, op->oloc, op->nspace, pgid);
     if (ret == -ENOENT)
       return RECALC_OP_TARGET_POOL_DNE;
   }
@@ -1346,7 +1346,8 @@ bool Objecter::recalc_linger_op_target(LingerOp *linger_op)
 {
   vector<int> acting;
   pg_t pgid;
-  int ret = osdmap->object_locator_to_pg(linger_op->oid, linger_op->oloc, pgid);
+  int ret = osdmap->object_locator_to_pg(linger_op->oid, linger_op->oloc,
+	linger_op->nspace, pgid);
   if (ret == -ENOENT) {
     return RECALC_OP_TARGET_POOL_DNE;
   }
