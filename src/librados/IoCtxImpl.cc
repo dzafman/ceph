@@ -370,6 +370,7 @@ int librados::IoCtxImpl::list(Objecter::ListContext *context, int max_entries)
     return 0;
 
   context->max_entries = max_entries;
+  context->nspace = oloc.nspace;
 
   lock->Lock();
   objecter->list_objects(context, new C_SafeCond(&mylock, &cond, &done, &r));
