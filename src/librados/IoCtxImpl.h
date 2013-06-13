@@ -60,6 +60,11 @@ struct librados::IoCtxImpl {
 		       ::ObjectOperation& op,
 		       const SnapContext& snapc);
 
+int read_and_wait(const object_t& oid,
+		       const object_locator_t& oloc,
+		       ::ObjectOperation& op,
+                       bufferlist *pbl);
+
   void dup(const IoCtxImpl& rhs) {
     // Copy everything except the ref count
     client = rhs.client;

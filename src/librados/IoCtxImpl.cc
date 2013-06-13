@@ -75,6 +75,34 @@ int librados::IoCtxImpl::write_and_wait(
   return r;
 }
 
+int librados::IoCtxImpl::read_and_wait(
+		       const object_t& oid,
+		       const object_locator_t& oloc,
+		       ::ObjectOperation& op,
+                       bufferlist *pbl)
+{
+  Mutex mylock("read_and_wait::mylock");
+  Cond cond;
+  bool done;
+  int r = 0;
+  Context *onack = new C_SafeCond(&mylock, &cond, &done, &r);
+  eversion_t ver;
+
+  lock->Lock();
+  objecter->read(oid, oloc, op, snap_seq, pbl, 0, onack, &ver);
+  lock->Unlock();
+
+  mylock.Lock();
+  while (!done)
+    cond.Wait(mylock);
+  mylock.Unlock();
+  ldout(client->cct, 10) << "Objecter returned from " << ceph_osd_op_name(op.ops[0].op.op) << dendl;
+
+  set_sync_op_version(ver);
+
+  return r;
+}
+
 void librados::IoCtxImpl::set_snap_read(snapid_t s)
 {
   if (!s)
@@ -1080,30 +1108,11 @@ int librados::IoCtxImpl::tmap_get(const object_t& oid, bufferlist& bl)
   if (snap_seq != CEPH_NOSNAP)
     return -EROFS;
 
-  Mutex mylock("IoCtxImpl::tmap_put::mylock");
-  Cond cond;
-  bool done;
-  int r = 0;
-  Context *onack = new C_SafeCond(&mylock, &cond, &done, &r);
-  eversion_t ver;
-
-  bufferlist outbl;
-
-  lock->Lock();
   ::ObjectOperation rd;
   prepare_assert_ops(&rd);
   rd.tmap_get(&bl, NULL);
-  objecter->read(oid, oloc, rd, snap_seq, 0, 0, onack, &ver);
-  lock->Unlock();
 
-  mylock.Lock();
-  while (!done)
-    cond.Wait(mylock);
-  mylock.Unlock();
-
-  set_sync_op_version(ver);
-
-  return r;
+  return read_and_wait(oid, oloc, rd, NULL);
 }
 
 
