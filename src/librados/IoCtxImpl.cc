@@ -964,7 +964,7 @@ int librados::IoCtxImpl::trunc(const object_t& oid, uint64_t size)
   if (snap_seq != CEPH_NOSNAP)
     return -EROFS;
 
-  Mutex mylock("IoCtxImpl::write_full::mylock");
+  Mutex mylock("IoCtxImpl::trunc::mylock");
   Cond cond;
   bool done;
   int r;
