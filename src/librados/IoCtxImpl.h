@@ -55,6 +55,11 @@ struct librados::IoCtxImpl {
   IoCtxImpl(RadosClient *c, Objecter *objecter, Mutex *client_lock,
 	    int poolid, const char *pool_name, snapid_t s);
 
+  int write_and_wait(const object_t& oid,
+		       const object_locator_t& oloc,
+		       ::ObjectOperation& op,
+		       const SnapContext& snapc);
+
   void dup(const IoCtxImpl& rhs) {
     // Copy everything except the ref count
     client = rhs.client;

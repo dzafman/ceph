@@ -43,6 +43,38 @@ librados::IoCtxImpl::IoCtxImpl(RadosClient *c, Objecter *objecter,
 {
 }
 
+int librados::IoCtxImpl::write_and_wait(
+		       const object_t& oid,
+		       const object_locator_t& oloc,
+		       ::ObjectOperation& op,
+		       const SnapContext& snapc)
+{
+  utime_t ut = ceph_clock_now(client->cct);
+
+  Mutex mylock("write_and_wait::mylock");
+  Cond cond;
+  bool done;
+  int r;
+
+  Context *onack = new C_SafeCond(&mylock, &cond, &done, &r);
+
+  eversion_t ver;
+
+  lock->Lock();
+  objecter->mutate(oid, oloc, op, snapc, ut, 0, onack, NULL, &ver);
+  lock->Unlock();
+
+  mylock.Lock();
+  while (!done)
+    cond.Wait(mylock);
+  mylock.Unlock();
+  ldout(client->cct, 10) << "Objecter returned from " << ceph_osd_op_name(op.ops[0].op.op) << dendl;
+
+  set_sync_op_version(ver);
+
+  return r;
+}
+
 void librados::IoCtxImpl::set_snap_read(snapid_t s)
 {
   if (!s)
@@ -550,38 +582,20 @@ int librados::IoCtxImpl::append(const object_t& oid, bufferlist& bl, size_t len)
 
 int librados::IoCtxImpl::write_full(const object_t& oid, bufferlist& bl)
 {
-  utime_t ut = ceph_clock_now(client->cct);
-
   /* can't write to a snapshot */
   if (snap_seq != CEPH_NOSNAP)
     return -EROFS;
 
-  Mutex mylock("IoCtxImpl::write_full::mylock");
-  Cond cond;
-  bool done;
-  int r;
+  ::ObjectOperation op, extra;
+  ::ObjectOperation *extra_ops = prepare_assert_ops(&extra);
 
-  Context *onack = new C_SafeCond(&mylock, &cond, &done, &r);
+  int i = objecter->init_ops(op.ops, 1, extra_ops);
+  op.ops[i].op.op = CEPH_OSD_OP_WRITEFULL;
+  op.ops[i].op.extent.offset = 0;
+  op.ops[i].op.extent.length = bl.length();
+  op.ops[i].indata = bl;
 
-  eversion_t ver;
-
-  ::ObjectOperation op;
-  ::ObjectOperation *pop = prepare_assert_ops(&op);
-
-  lock->Lock();
-  objecter->write_full(oid, oloc,
-		       snapc, bl, ut, 0,
-		       onack, NULL, &ver, pop);
-  lock->Unlock();
-
-  mylock.Lock();
-  while (!done)
-    cond.Wait(mylock);
-  mylock.Unlock();
-
-  set_sync_op_version(ver);
-
-  return r;
+  return write_and_wait(oid, oloc, op, snapc);
 }
 
 int librados::IoCtxImpl::clone_range(const object_t& dst_oid,
