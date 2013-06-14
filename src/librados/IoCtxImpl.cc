@@ -614,15 +614,9 @@ int librados::IoCtxImpl::write_full(const object_t& oid, bufferlist& bl)
   if (snap_seq != CEPH_NOSNAP)
     return -EROFS;
 
-  ::ObjectOperation op, extra;
-  ::ObjectOperation *extra_ops = prepare_assert_ops(&extra);
-
-  int i = objecter->init_ops(op.ops, 1, extra_ops);
-  op.ops[i].op.op = CEPH_OSD_OP_WRITEFULL;
-  op.ops[i].op.extent.offset = 0;
-  op.ops[i].op.extent.length = bl.length();
-  op.ops[i].indata = bl;
-
+  ::ObjectOperation op;
+  prepare_assert_ops(&op);
+  op.write_full(bl);
   return write_and_wait(oid, oloc, op, snapc);
 }
 
