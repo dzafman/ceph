@@ -533,37 +533,15 @@ int librados::IoCtxImpl::create(const object_t& oid, bool exclusive,
 int librados::IoCtxImpl::write(const object_t& oid, bufferlist& bl,
 			       size_t len, uint64_t off)
 {
-  utime_t ut = ceph_clock_now(client->cct);
-
   /* can't write to a snapshot */
   if (snap_seq != CEPH_NOSNAP)
     return -EROFS;
 
-  Mutex mylock("IoCtxImpl::write::mylock");
-  Cond cond;
-  bool done;
-  int r;
-
-  Context *onack = new C_SafeCond(&mylock, &cond, &done, &r);
-  eversion_t ver;
-
-  // extra ops?
   ::ObjectOperation op;
-  ::ObjectOperation *pop = prepare_assert_ops(&op);
-
-  lock->Lock();
-  objecter->write(oid, oloc,
-		  off, len, snapc, bl, ut, 0,
-		  onack, NULL, &ver, pop);
-  lock->Unlock();
-
-  mylock.Lock();
-  while (!done)
-    cond.Wait(mylock);
-  mylock.Unlock();
-
-  set_sync_op_version(ver);
-
+  prepare_assert_ops(&op);
+  bufferlist mybl = bl;	// XXX: Need my own bl for the way op.write() works
+  op.write(off, len, mybl);
+  int r =  write_and_wait(oid, oloc, op, snapc);
   if (r < 0)
     return r;
 
