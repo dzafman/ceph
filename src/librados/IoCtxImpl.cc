@@ -1381,38 +1381,21 @@ int librados::IoCtxImpl::setxattr(const object_t& oid,
 int librados::IoCtxImpl::getxattrs(const object_t& oid,
 				     map<std::string, bufferlist>& attrset)
 {
-  Mutex mylock("IoCtxImpl::getexattrs::mylock");
-  Cond cond;
-  bool done;
   int r;
-  eversion_t ver;
-
-  ::ObjectOperation op;
-  ::ObjectOperation *pop = prepare_assert_ops(&op);
-
-  Context *onack = new C_SafeCond(&mylock, &cond, &done, &r);
-
-  lock->Lock();
   map<string, bufferlist> aset;
-  objecter->getxattrs(oid, oloc, snap_seq,
-		      aset,
-		      0, onack, &ver, pop);
-  lock->Unlock();
 
-  attrset.clear();
+  ::ObjectOperation rd;
+  prepare_assert_ops(&rd);
+  rd.getxattrs(&aset, &r);
+  read_and_wait(oid, oloc, rd, NULL);
 
-
-  mylock.Lock();
-  while (!done)
-    cond.Wait(mylock);
-  mylock.Unlock();
-
-  for (map<string,bufferlist>::iterator p = aset.begin(); p != aset.end(); ++p) {
-    ldout(client->cct, 10) << "IoCtxImpl::getxattrs: xattr=" << p->first << dendl;
-    attrset[p->first.c_str()] = p->second;
+  if (r >= 0) {
+    attrset.clear();
+    for (map<string,bufferlist>::iterator p = aset.begin(); p != aset.end(); ++p) {
+      ldout(client->cct, 10) << "IoCtxImpl::getxattrs: xattr=" << p->first << dendl;
+      attrset[p->first.c_str()] = p->second;
+    }
   }
-
-  set_sync_op_version(ver);
 
   return r;
 }
