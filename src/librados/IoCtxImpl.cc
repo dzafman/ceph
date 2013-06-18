@@ -1271,29 +1271,11 @@ int librados::IoCtxImpl::stat(const object_t& oid, uint64_t *psize, time_t *pmti
 int librados::IoCtxImpl::getxattr(const object_t& oid,
 				    const char *name, bufferlist& bl)
 {
-  Mutex mylock("IoCtxImpl::getxattr::mylock");
-  Cond cond;
-  bool done;
   int r;
-  Context *onack = new C_SafeCond(&mylock, &cond, &done, &r);
-  eversion_t ver;
-
-  ::ObjectOperation op;
-  ::ObjectOperation *pop = prepare_assert_ops(&op);
-
-  lock->Lock();
-  objecter->getxattr(oid, oloc,
-		     name, snap_seq, &bl, 0,
-		     onack, &ver, pop);
-  lock->Unlock();
-
-  mylock.Lock();
-  while (!done)
-    cond.Wait(mylock);
-  mylock.Unlock();
-  ldout(client->cct, 10) << "Objecter returned from getxattr" << dendl;
-
-  set_sync_op_version(ver);
+  ::ObjectOperation rd;
+  prepare_assert_ops(&rd);
+  rd.getxattr(name, &bl, &r);
+  read_and_wait(oid, oloc, rd, NULL);
 
   if (r < 0)
     return r;
