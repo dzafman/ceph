@@ -428,32 +428,14 @@ int librados::IoCtxImpl::list(Objecter::ListContext *context, int max_entries)
 
 int librados::IoCtxImpl::create(const object_t& oid, bool exclusive)
 {
-  utime_t ut = ceph_clock_now(client->cct);
-
   /* can't write to a snapshot */
   if (snap_seq != CEPH_NOSNAP)
     return -EROFS;
 
-  Mutex mylock("IoCtxImpl::create::mylock");
-  Cond cond;
-  bool done;
-  int r;
-  eversion_t ver;
-
-  Context *onack = new C_SafeCond(&mylock, &cond, &done, &r);
-
-  lock->Lock();
-  objecter->create(oid, oloc,
-		  snapc, ut, 0, (exclusive ? CEPH_OSD_OP_FLAG_EXCL : 0),
-		  onack, NULL, &ver);
-  lock->Unlock();
-
-  mylock.Lock();
-  while (!done)
-    cond.Wait(mylock);
-  mylock.Unlock();
-
-  set_sync_op_version(ver);
+  ::ObjectOperation op;
+  prepare_assert_ops(&op);
+  op.create(exclusive);
+  int r =  write_and_wait(oid, oloc, op, snapc);
 
   return r;
 }
@@ -461,33 +443,14 @@ int librados::IoCtxImpl::create(const object_t& oid, bool exclusive)
 int librados::IoCtxImpl::create(const object_t& oid, bool exclusive,
 				const std::string& category)
 {
-  utime_t ut = ceph_clock_now(client->cct);
-
   /* can't write to a snapshot */
   if (snap_seq != CEPH_NOSNAP)
     return -EROFS;
 
-  Mutex mylock("IoCtxImpl::create::mylock");
-  Cond cond;
-  bool done;
-  int r;
-  eversion_t ver;
-
-  Context *onack = new C_SafeCond(&mylock, &cond, &done, &r);
-
-  ::ObjectOperation o;
-  o.create(exclusive ? CEPH_OSD_OP_FLAG_EXCL : 0, category);
-
-  lock->Lock();
-  objecter->mutate(oid, oloc, o, snapc, ut, 0, onack, NULL, &ver);
-  lock->Unlock();
-
-  mylock.Lock();
-  while (!done)
-    cond.Wait(mylock);
-  mylock.Unlock();
-
-  set_sync_op_version(ver);
+  ::ObjectOperation op;
+  prepare_assert_ops(&op);
+  op.create(exclusive, category);
+  int r =  write_and_wait(oid, oloc, op, snapc);
 
   return r;
 }
