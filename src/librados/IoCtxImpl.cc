@@ -1216,79 +1216,29 @@ int librados::IoCtxImpl::getxattr(const object_t& oid,
 
 int librados::IoCtxImpl::rmxattr(const object_t& oid, const char *name)
 {
-  utime_t ut = ceph_clock_now(client->cct);
-
   /* can't write to a snapshot */
   if (snap_seq != CEPH_NOSNAP)
     return -EROFS;
 
-  Mutex mylock("IoCtxImpl::rmxattr::mylock");
-  Cond cond;
-  bool done;
-  int r;
-
-  Context *onack = new C_SafeCond(&mylock, &cond, &done, &r);
-  eversion_t ver;
-
   ::ObjectOperation op;
-  ::ObjectOperation *pop = prepare_assert_ops(&op);
-
-  lock->Lock();
-  objecter->removexattr(oid, oloc, name,
-			snapc, ut, 0,
-			onack, NULL, &ver, pop);
-  lock->Unlock();
-
-  mylock.Lock();
-  while (!done)
-    cond.Wait(mylock);
-  mylock.Unlock();
-
-  set_sync_op_version(ver);
-
-  if (r < 0)
-    return r;
-
-  return 0;
+  prepare_assert_ops(&op);
+  op.rmxattr(name);
+  int r =  write_and_wait(oid, oloc, op, snapc);
+  return r;
 }
 
 int librados::IoCtxImpl::setxattr(const object_t& oid,
 				    const char *name, bufferlist& bl)
 {
-  utime_t ut = ceph_clock_now(client->cct);
-
   /* can't write to a snapshot */
   if (snap_seq != CEPH_NOSNAP)
     return -EROFS;
 
-  Mutex mylock("IoCtxImpl::setxattr::mylock");
-  Cond cond;
-  bool done;
-  int r;
-
-  Context *onack = new C_SafeCond(&mylock, &cond, &done, &r);
-  eversion_t ver;
-
   ::ObjectOperation op;
-  ::ObjectOperation *pop = prepare_assert_ops(&op);
-
-  lock->Lock();
-  objecter->setxattr(oid, oloc, name,
-		     snapc, bl, ut, 0,
-		     onack, NULL, &ver, pop);
-  lock->Unlock();
-
-  mylock.Lock();
-  while (!done)
-    cond.Wait(mylock);
-  mylock.Unlock();
-
-  set_sync_op_version(ver);
-
-  if (r < 0)
-    return r;
-
-  return 0;
+  prepare_assert_ops(&op);
+  op.setxattr(name, bl);
+  int r =  write_and_wait(oid, oloc, op, snapc);
+  return r;
 }
 
 int librados::IoCtxImpl::getxattrs(const object_t& oid,
