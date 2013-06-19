@@ -273,8 +273,7 @@ int librados::IoCtxImpl::selfmanaged_snap_rollback_object(const object_t& oid,
   ::ObjectOperation op;
   prepare_assert_ops(&op);
   op.rollback(snapid);
-  int r =  write_and_wait(oid, oloc, op, snapc);
-  return r;
+  return write_and_wait(oid, oloc, op, snapc);
 }
 
 int librados::IoCtxImpl::rollback(const object_t& oid, const char *snapName)
@@ -435,9 +434,7 @@ int librados::IoCtxImpl::create(const object_t& oid, bool exclusive)
   ::ObjectOperation op;
   prepare_assert_ops(&op);
   op.create(exclusive);
-  int r =  write_and_wait(oid, oloc, op, snapc);
-
-  return r;
+  return write_and_wait(oid, oloc, op, snapc);
 }
 
 int librados::IoCtxImpl::create(const object_t& oid, bool exclusive,
@@ -450,9 +447,7 @@ int librados::IoCtxImpl::create(const object_t& oid, bool exclusive,
   ::ObjectOperation op;
   prepare_assert_ops(&op);
   op.create(exclusive, category);
-  int r =  write_and_wait(oid, oloc, op, snapc);
-
-  return r;
+  return write_and_wait(oid, oloc, op, snapc);
 }
 
 /*
@@ -869,36 +864,14 @@ int librados::IoCtxImpl::aio_stat(const object_t& oid, AioCompletionImpl *c,
 
 int librados::IoCtxImpl::remove(const object_t& oid)
 {
-  utime_t ut = ceph_clock_now(client->cct);
-
   /* can't write to a snapshot */
   if (snap_seq != CEPH_NOSNAP)
     return -EROFS;
 
-  Mutex mylock("IoCtxImpl::remove::mylock");
-  Cond cond;
-  bool done;
-  int r;
-  Context *onack = new C_SafeCond(&mylock, &cond, &done, &r);
-  eversion_t ver;
-
   ::ObjectOperation op;
-  ::ObjectOperation *pop = prepare_assert_ops(&op);
-
-  lock->Lock();
-  objecter->remove(oid, oloc,
-		   snapc, ut, 0,
-		   onack, NULL, &ver, pop);
-  lock->Unlock();
-
-  mylock.Lock();
-  while (!done)
-    cond.Wait(mylock);
-  mylock.Unlock();
-
-  set_sync_op_version(ver);
-
-  return r;
+  prepare_assert_ops(&op);
+  op.remove();
+  return write_and_wait(oid, oloc, op, snapc);
 }
 
 int librados::IoCtxImpl::trunc(const object_t& oid, uint64_t size)
@@ -1223,8 +1196,7 @@ int librados::IoCtxImpl::rmxattr(const object_t& oid, const char *name)
   ::ObjectOperation op;
   prepare_assert_ops(&op);
   op.rmxattr(name);
-  int r =  write_and_wait(oid, oloc, op, snapc);
-  return r;
+  return write_and_wait(oid, oloc, op, snapc);
 }
 
 int librados::IoCtxImpl::setxattr(const object_t& oid,
@@ -1237,8 +1209,7 @@ int librados::IoCtxImpl::setxattr(const object_t& oid,
   ::ObjectOperation op;
   prepare_assert_ops(&op);
   op.setxattr(name, bl);
-  int r =  write_and_wait(oid, oloc, op, snapc);
-  return r;
+  return write_and_wait(oid, oloc, op, snapc);
 }
 
 int librados::IoCtxImpl::getxattrs(const object_t& oid,
