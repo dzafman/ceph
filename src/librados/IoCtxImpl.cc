@@ -270,22 +270,11 @@ int librados::IoCtxImpl::selfmanaged_snap_rollback_object(const object_t& oid,
 							  ::SnapContext& snapc,
 							  uint64_t snapid)
 {
-  int reply;
-
-  Mutex mylock("IoCtxImpl::snap_rollback::mylock");
-  Cond cond;
-  bool done;
-  Context *onack = new C_SafeCond(&mylock, &cond, &done, &reply);
-
-  lock->Lock();
-  objecter->rollback_object(oid, oloc, snapc, snapid,
-			    ceph_clock_now(client->cct), onack, NULL);
-  lock->Unlock();
-
-  mylock.Lock();
-  while (!done) cond.Wait(mylock);
-  mylock.Unlock();
-  return reply;
+  ::ObjectOperation op;
+  prepare_assert_ops(&op);
+  op.rollback(snapid);
+  int r =  write_and_wait(oid, oloc, op, snapc);
+  return r;
 }
 
 int librados::IoCtxImpl::rollback(const object_t& oid, const char *snapName)
