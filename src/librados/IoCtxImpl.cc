@@ -876,38 +876,14 @@ int librados::IoCtxImpl::remove(const object_t& oid)
 
 int librados::IoCtxImpl::trunc(const object_t& oid, uint64_t size)
 {
-  utime_t ut = ceph_clock_now(client->cct);
-
   /* can't write to a snapshot */
   if (snap_seq != CEPH_NOSNAP)
     return -EROFS;
 
-  Mutex mylock("IoCtxImpl::trunc::mylock");
-  Cond cond;
-  bool done;
-  int r;
-
-  Context *onack = new C_SafeCond(&mylock, &cond, &done, &r);
-  eversion_t ver;
-
   ::ObjectOperation op;
-  ::ObjectOperation *pop = prepare_assert_ops(&op);
-
-  lock->Lock();
-  objecter->trunc(oid, oloc,
-		  snapc, ut, 0,
-		  size, 0,
-		  onack, NULL, &ver, pop);
-  lock->Unlock();
-
-  mylock.Lock();
-  while (!done)
-    cond.Wait(mylock);
-  mylock.Unlock();
-
-  set_sync_op_version(ver);
-
-  return r;
+  prepare_assert_ops(&op);
+  op.truncate(size);
+  return write_and_wait(oid, oloc, op, snapc);
 }
 
 int librados::IoCtxImpl::tmap_update(const object_t& oid, bufferlist& cmdbl)
@@ -924,8 +900,6 @@ int librados::IoCtxImpl::tmap_update(const object_t& oid, bufferlist& cmdbl)
   int r;
   Context *onack = new C_SafeCond(&mylock, &cond, &done, &r);
   eversion_t ver;
-
-  bufferlist outbl;
 
   lock->Lock();
   ::ObjectOperation wr;
@@ -958,8 +932,6 @@ int librados::IoCtxImpl::tmap_put(const object_t& oid, bufferlist& bl)
   int r;
   Context *onack = new C_SafeCond(&mylock, &cond, &done, &r);
   eversion_t ver;
-
-  bufferlist outbl;
 
   lock->Lock();
   ::ObjectOperation wr;
@@ -1136,38 +1108,23 @@ int librados::IoCtxImpl::sparse_read(const object_t& oid,
 
 int librados::IoCtxImpl::stat(const object_t& oid, uint64_t *psize, time_t *pmtime)
 {
-  Mutex mylock("IoCtxImpl::stat::mylock");
-  Cond cond;
-  bool done;
-  int r;
-  Context *onack = new C_SafeCond(&mylock, &cond, &done, &r);
   uint64_t size;
   utime_t mtime;
-  eversion_t ver;
+  int r;
 
   if (!psize)
     psize = &size;
 
-  ::ObjectOperation op;
-  ::ObjectOperation *pop = prepare_assert_ops(&op);
+  ::ObjectOperation rd;
+  prepare_assert_ops(&rd);
+  rd.stat(psize, &mtime, &r);
+  read_and_wait(oid, oloc, rd, NULL);
 
-  lock->Lock();
-  objecter->stat(oid, oloc,
-		 snap_seq, psize, &mtime, 0,
-		 onack, &ver, pop);
-  lock->Unlock();
-
-  mylock.Lock();
-  while (!done)
-    cond.Wait(mylock);
-  mylock.Unlock();
-  ldout(client->cct, 10) << "Objecter returned from stat" << dendl;
+  r = operate_read(oid, &rd, NULL);
 
   if (r >= 0 && pmtime) {
     *pmtime = mtime.sec();
   }
-
-  set_sync_op_version(ver);
 
   return r;
 }
