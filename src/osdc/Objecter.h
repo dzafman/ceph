@@ -284,6 +284,9 @@ struct ObjectOperation {
   void append(bufferlist& bl) {
     add_data(CEPH_OSD_OP_APPEND, 0, bl.length(), bl);
   }
+  void append(bufferlist& bl, uint64_t len) {
+    add_data(CEPH_OSD_OP_APPEND, 0, len, bl);
+  }
   void zero(uint64_t off, uint64_t len) {
     bufferlist bl;
     add_data(CEPH_OSD_OP_ZERO, off, len, bl);
