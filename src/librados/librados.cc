@@ -2451,6 +2451,7 @@ extern "C" int rados_objects_list_open(rados_ioctx_t io, rados_list_ctx_t *listh
   Objecter::ListContext *h = new Objecter::ListContext;
   h->pool_id = ctx->poolid;
   h->pool_snap_seq = ctx->snap_seq;
+  h->nspace = ctx->nspace;
   *listh = (void *)new librados::ObjListCtx(ctx, h);
   return 0;
 }

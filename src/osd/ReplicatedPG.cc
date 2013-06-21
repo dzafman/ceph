@@ -543,6 +543,10 @@ void ReplicatedPG::do_pg_op(OpRequestRef op)
 	    }
 	  }
 
+	  // skip wrong namespace
+	  if (candidate.get_nspace() != m->get_nspace())
+	    continue;
+
 	  if (filter && !pgls_filter(filter, candidate, filter_out))
 	    continue;
 
