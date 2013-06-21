@@ -97,11 +97,11 @@ public:
     : Message(CEPH_MSG_OSD_OP, HEAD_VERSION, COMPAT_VERSION) { }
   MOSDOp(int inc, long tid,
          object_t& _oid, object_locator_t& _oloc, pg_t _pgid, epoch_t _osdmap_epoch,
-	 int _flags)
+	 int _flags, string& nspace)
     : Message(CEPH_MSG_OSD_OP, HEAD_VERSION, COMPAT_VERSION),
       client_inc(inc),
       osdmap_epoch(_osdmap_epoch), flags(_flags), retry_attempt(-1),
-      oid(_oid), oloc(_oloc), pgid(_pgid) {
+      oid(_oid), oloc(_oloc), pgid(_pgid), nspace(nspace) {
     set_tid(tid);
   }
 private:
@@ -347,7 +347,7 @@ struct ceph_osd_request_head {
   const char *get_type_name() const { return "osd_op"; }
   void print(ostream& out) const {
     out << "osd_op(" << get_reqid();
-    out << " " << oid;
+    out << " " << nspace << ":" << oid;
 
 #if 0
     out << " ";
