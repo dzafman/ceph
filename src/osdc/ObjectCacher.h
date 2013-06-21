@@ -165,6 +165,7 @@ class ObjectCacher {
     int ref;
     ObjectCacher *oc;
     sobject_t oid;
+    string nspace;
     friend class ObjectSet;
 
   public:
@@ -190,10 +191,10 @@ class ObjectCacher {
     Object(const Object& other);
     const Object& operator=(const Object& other);
 
-    Object(ObjectCacher *_oc, sobject_t o, ObjectSet *os, object_locator_t& l) : 
+    Object(ObjectCacher *_oc, sobject_t o, ObjectSet *os, object_locator_t& l, string& nspace) : 
       ref(0),
       oc(_oc),
-      oid(o), oset(os), set_item(this), oloc(l),
+      oid(o), nspace(nspace), oset(os), set_item(this), oloc(l),
       complete(false), exists(true),
       last_write_tid(0), last_commit_tid(0),
       dirty_or_tx(0) {
@@ -212,6 +213,7 @@ class ObjectCacher {
     object_t get_oid() { return oid.oid; }
     snapid_t get_snap() { return oid.snap; }
     ObjectSet *get_object_set() { return oset; }
+    string get_nspace() { return nspace; }
     
     object_locator_t& get_oloc() { return oloc; }
     void set_object_locator(object_locator_t& l) { oloc = l; }
@@ -364,7 +366,7 @@ class ObjectCacher {
   }
 
   Object *get_object(sobject_t oid, ObjectSet *oset,
-                     object_locator_t &l);
+                     object_locator_t &l, string& nspace);
   void close_object(Object *ob);
 
   // bh stats

@@ -1242,6 +1242,11 @@ void librados::IoCtx::locator_set_key(const string& key)
   io_ctx_impl->oloc.key = key;
 }
 
+void librados::IoCtx::namespace_set_key(const string& key)
+{
+  io_ctx_impl->nspace = key;
+}
+
 int64_t librados::IoCtx::get_id()
 {
   return io_ctx_impl->get_id();
