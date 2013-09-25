@@ -66,6 +66,26 @@ static const __SWORD_TYPE ZFS_SUPER_MAGIC(0x2fc12fc1);
 
 class FileStoreBackend;
 
+#define CEPH_FS_FEATURE_INCOMPAT_SHARDS CompatSet::Feature(1, "sharded objects")
+
+class FSSuperblock {
+public:
+  CompatSet compat_features;
+
+  FSSuperblock() { }
+
+  void encode(bufferlist &bl) const;
+  void decode(bufferlist::iterator &bl);
+  void dump(Formatter *f) const;
+  static void generate_test_instances(list<FSSuperblock*>& o);
+};
+WRITE_CLASS_ENCODER(FSSuperblock)
+
+inline ostream& operator<<(ostream& out, const FSSuperblock& sb)
+{
+  return out << "sb(" << sb.compat_features << ")";
+}
+
 class FileStore : public JournalingObjectStore,
                   public md_config_obs_t
 {
@@ -320,6 +340,8 @@ public:
   int get_max_object_name_length();
   int mkfs();
   int mkjournal();
+  void set_allow_sharded_objects();
+  bool get_allow_sharded_objects();
 
   int statfs(struct statfs *buf);
 
@@ -553,6 +575,10 @@ private:
   std::ofstream m_filestore_dump;
   JSONFormatter m_filestore_dump_fmt;
   atomic_t m_filestore_kill_at;
+  FSSuperblock superblock;
+
+  int write_superblock();
+  int read_superblock();
 
   friend class FileStoreBackend;
 };
