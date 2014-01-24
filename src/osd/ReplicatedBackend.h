@@ -327,6 +327,7 @@ private:
     const ObjectRecoveryInfo& recovery_info,
     SnapSetContext *ssc
     );
+  bool scrub_supported() { return true; }
 };
 
 #endif

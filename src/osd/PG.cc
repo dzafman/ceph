@@ -3402,6 +3402,7 @@ void PG::scrub(ThreadPool::TPHandle &handle)
  */
 void PG::classic_scrub(ThreadPool::TPHandle &handle)
 {
+  assert(pool.info.type == pg_pool_t::TYPE_REPLICATED);
   if (!scrubber.active) {
     dout(10) << "scrub start" << dendl;
     scrubber.active = true;

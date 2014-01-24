@@ -29,6 +29,7 @@
   * 1) Handling client operations
   * 2) Handling object recovery
   * 3) Handling object access
+  * 4) Handling scrub, deep-scrub, repair
   */
  class PGBackend {
  public:	
@@ -232,6 +233,8 @@
      const hobject_t &hoid,
      const string &attr,
      bufferlist *out) = 0;
+
+   virtual bool scrub_supported() { return false; }
  };
 
 #endif
