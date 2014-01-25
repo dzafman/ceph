@@ -328,6 +328,8 @@ private:
     SnapSetContext *ssc
     );
   bool scrub_supported() { return true; }
+  void be_scan_list(ScrubMap &map, vector<hobject_t> &ls, bool deep,
+    ThreadPool::TPHandle &handle);
 };
 
 #endif
