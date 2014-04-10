@@ -8,6 +8,7 @@
 #include "RadosModel.h"
 #include "TestOpStat.h"
 
+int SnapCreateOp::snapname_num = 0;
 
 void TestOp::begin()
 {
