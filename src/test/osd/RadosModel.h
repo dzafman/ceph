@@ -97,12 +97,14 @@ public:
   RadosTestContext *context;
   TestOpStat *stat;
   bool done;
+  bool need_quiesce;
   TestOp(int n, RadosTestContext *context,
 	 TestOpStat *stat = 0)
     : num(n),
       context(context),
       stat(stat),
-      done(0)
+      done(0),
+      need_quiesce(false)
   {}
 
   virtual ~TestOp() {};
@@ -138,6 +140,7 @@ public:
 
   void begin();
   void finish(CallbackInfo *info);
+  bool must_quiesce_other_ops() { return need_quiesce; }
 };
 
 class TestOpGenerator {
@@ -245,7 +248,13 @@ public:
     state_lock.Lock();
 
     TestOp *next = gen->next(*this);
+    TestOp *waiting = NULL;
+
     while (next || !inflight.empty()) {
+      if (next && next->must_quiesce_other_ops() && !inflight.empty()) {
+        waiting = next;
+        next = NULL;   // Force to wait for inflight to drain
+      }
       if (next) {
 	inflight.push_back(next);
       }
@@ -273,7 +282,11 @@ public:
 	  break;
 	}
       }
-      next = gen->next(*this);
+      if (waiting) {
+        next = waiting;
+        waiting = NULL;
+      } else
+        next = gen->next(*this);
     }
     state_lock.Unlock();
   }
@@ -1158,7 +1171,7 @@ public:
 	       RadosTestContext *context,
 	       TestOpStat *stat = 0)
     : TestOp(n, context, stat)
-  {}
+  { need_quiesce = context->pool_snaps; }
 
   static int snapname_num;
 
@@ -1186,7 +1199,6 @@ public:
 
     context->state_lock.Lock();
     context->add_snap(snap);
-
 
     if (context->pool_snaps) {
       context->state_lock.Unlock();
