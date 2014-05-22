@@ -17,6 +17,7 @@ NUM_OBJECTS=40
 ERRORS=0
 TESTDIR="/tmp/test.$$"
 DATADIR="/tmp/data.$$"
+JSONOBJ="/tmp/json.$$"
 
 echo -n "vstarting...."
 OSD=4 ./vstart.sh -l -n -d > /dev/null 2>&1
@@ -176,7 +177,7 @@ rm -f /tmp/tmp.$$
 
 # Test --type list and generate json for all objects
 echo "Testing --type list by generating json for all objects"
-for pg in $OBJREPPGS
+for pg in $OBJREPPGS $OBJECPGS
 do
   OSDS=`ls -d dev/*/current/${pg}_head | awk -F / '{ print $2 }'`
   for osd in $OSDS
@@ -190,7 +191,7 @@ do
   done
 done
 
-sort -u /tmp/tmp.$$ > /tmp/json.$$
+sort -u /tmp/tmp.$$ > $JSONOBJ
 rm -f /tmp/tmp.$$
 
 # Test get-bytes
@@ -199,7 +200,7 @@ for file in ${DATADIR}/${REP_NAME}*
 do
   rm -f /tmp/tmp.$$
   BASENAME=`basename $file`
-  JSON=`grep \"$BASENAME\" /tmp/json.$$`
+  JSON=`grep \"$BASENAME\" $JSONOBJ`
   for pg in $OBJREPPGS
   do
     OSDS=`ls -d dev/*/current/${pg}_head | awk -F / '{ print $2 }'`
