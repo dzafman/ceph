@@ -22,6 +22,11 @@ def wait_for_health():
     time.sleep(5)
   print "DONE"
 
+def get_pool_id(name):
+  cmd = "./ceph osd pool stats {pool}".format(pool = name).split()
+  # pool {pool} id # .... grab the 4 field
+  return check_output(cmd, stderr=nullfd).split()[3]
+
 sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 0)
 nullfd = open(os.devnull, "w")
 
@@ -45,16 +50,24 @@ wait_for_health()
 cmd = "./ceph osd pool create {pool} 12 12 replicated  2> /dev/null".format(pool = REP_POOL)
 call(cmd, shell=True)
 #cmd = "./ceph osd pool stats {pool}  2> /dev/null | grep ^pool | awk '{{ print $4 }}'".format(pool = REP_POOL)
-cmd = "./ceph osd pool stats {pool}".format(pool = REP_POOL).split()
+
+#cmd = "./ceph osd pool stats {pool}".format(pool = REP_POOL).split()
 # pool {pool} id # .... grab the 4 field
-REPID = check_output(cmd, stderr=nullfd).split()[3]
+#REPID = check_output(cmd, stderr=nullfd).split()[3]
+REPID = get_pool_id(REP_POOL)
 
+print "Created Replicated pool #{repid}".format(repid=REPID)
 
-#REPID = call(cmd, shell=True)
+cmd = "./ceph osd erasure-code-profile set testprofile ruleset-failure-domain=osd"
+call(cmd, shell=True)
+cmd = "./ceph osd erasure-code-profile get testprofile"
+call(cmd, shell=True)
+cmd = "./ceph osd pool create {pool} 12 12 erasure testprofile".format(pool = EC_POOL)
+call(cmd, shell=True)
+ECID = get_pool_id(EC_POOL)
 
-print REPID
+print "Created Erasure coded pool #{ecid}".format(ecid=ECID)
 
-#  
 #  REP_POOL="rep_pool"
 #  REP_NAME="REPobject"
 #  EC_POOL="ec_pool"
