@@ -2,7 +2,7 @@
 
 from subprocess import call
 from subprocess import check_output
-from subprocess import DEVNULL
+#from subprocess import DEVNULL
 import os
 import time
 import sys
@@ -23,6 +23,7 @@ def wait_for_health():
   print "DONE"
 
 sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 0)
+nullfd = open(os.devnull, "w")
 
 REP_POOL="rep_pool"
 REP_NAME="REPobject"
@@ -36,7 +37,7 @@ DATADIR="/tmp/data.{pid}".format(pid=pid)
 JSONOBJ="/tmp/json.{pid}".format(pid=pid)
 
 print "vstarting....",
-#call("OSD=4 ./vstart.sh -l -n -d > /dev/null 2>&1", shell=True)
+call("OSD=4 ./vstart.sh -l -n -d > /dev/null 2>&1", shell=True)
 print "DONE"
 
 wait_for_health()
@@ -45,7 +46,8 @@ cmd = "./ceph osd pool create {pool} 12 12 replicated  2> /dev/null".format(pool
 call(cmd, shell=True)
 #cmd = "./ceph osd pool stats {pool}  2> /dev/null | grep ^pool | awk '{{ print $4 }}'".format(pool = REP_POOL)
 cmd = "./ceph osd pool stats {pool}".format(pool = REP_POOL).split()
-REPID = check_output(cmd, stderr=DEVNULL)
+# pool {pool} id # .... grab the 4 field
+REPID = check_output(cmd, stderr=nullfd).split()[3]
 
 
 #REPID = call(cmd, shell=True)
