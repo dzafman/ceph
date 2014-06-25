@@ -41,11 +41,28 @@ TESTDIR="/tmp/test.{pid}".format(pid=pid)
 DATADIR="/tmp/data.{pid}".format(pid=pid)
 JSONOBJ="/tmp/json.{pid}".format(pid=pid)
 
+#  REP_POOL="rep_pool"
+#  REP_NAME="REPobject"
+#  EC_POOL="ec_pool"
+#  EC_NAME="ECobject"
+#  NUM_OBJECTS=4
+#  ERRORS=0
+#  TESTDIR="/tmp/test.$$"
+#  DATADIR="/tmp/data.$$"
+#  JSONOBJ="/tmp/json.$$"
+#  
+
 print "vstarting....",
 call("OSD=4 ./vstart.sh -l -n -d > /dev/null 2>&1", shell=True)
 print "DONE"
 
 wait_for_health()
+
+#  echo -n "vstarting...."
+#  OSD=4 ./vstart.sh -l -n -d > /dev/null 2>&1
+#  echo DONE
+#  
+#  wait_for_health
 
 cmd = "./ceph osd pool create {pool} 12 12 replicated  2> /dev/null".format(pool = REP_POOL)
 call(cmd, shell=True)
@@ -58,6 +75,12 @@ REPID = get_pool_id(REP_POOL)
 
 print "Created Replicated pool #{repid}".format(repid=REPID)
 
+#  
+#  ./ceph osd pool create $REP_POOL 12 12 replicated  2> /dev/null
+#  REPID=`./ceph osd pool stats $REP_POOL  2> /dev/null | grep ^pool | awk '{ print $4 }'`
+#  
+#  echo "Created replicated pool #" $REPID
+
 cmd = "./ceph osd erasure-code-profile set testprofile ruleset-failure-domain=osd"
 call(cmd, shell=True)
 cmd = "./ceph osd erasure-code-profile get testprofile"
@@ -68,26 +91,6 @@ ECID = get_pool_id(EC_POOL)
 
 print "Created Erasure coded pool #{ecid}".format(ecid=ECID)
 
-#  REP_POOL="rep_pool"
-#  REP_NAME="REPobject"
-#  EC_POOL="ec_pool"
-#  EC_NAME="ECobject"
-#  NUM_OBJECTS=4
-#  ERRORS=0
-#  TESTDIR="/tmp/test.$$"
-#  DATADIR="/tmp/data.$$"
-#  JSONOBJ="/tmp/json.$$"
-#  
-#  echo -n "vstarting...."
-#  OSD=4 ./vstart.sh -l -n -d > /dev/null 2>&1
-#  echo DONE
-#  
-#  wait_for_health
-#  
-#  ./ceph osd pool create $REP_POOL 12 12 replicated  2> /dev/null
-#  REPID=`./ceph osd pool stats $REP_POOL  2> /dev/null | grep ^pool | awk '{ print $4 }'`
-#  
-#  echo "Created replicated pool #" $REPID
 #  
 #  ./ceph osd erasure-code-profile set testprofile ruleset-failure-domain=osd || return 1
 #  ./ceph osd erasure-code-profile get testprofile
@@ -95,6 +98,38 @@ print "Created Erasure coded pool #{ecid}".format(ecid=ECID)
 #  ECID=`./ceph osd pool stats $EC_POOL  2> /dev/null | grep ^pool | awk '{ print $4 }'`
 #  
 #  echo "Created Erasure coded pool #" $ECID
+
+print "Creating {objs} objects in replicated pool".format(objs=NUM_OBJECTS)
+cmd = "mkdir -p {datadir}".format(datadir=DATADIR)
+call(cmd, shell=True)
+
+objects = range(1,NUM_OBJECTS + 1)
+for i in objects:
+  NAME = REP_NAME + "%d" %  i
+  DDNAME = DATADIR + NAME
+
+  cmd = "rm -f " + DDNAME
+  call(cmd, shell=True)
+
+  dataline = range(10000)
+  f = open(DDNAME, "w")
+  data = "This is the replicated data for " + NAME + "\n"
+  for j in dataline:
+    f.write(data)
+  f.close()
+
+  cmd = "./rados -p {pool} put {name} {ddname}".format(pool=REP_POOL, name=NAME, ddname=DDNAME)
+  call(cmd, shell=True, stderr=nullfd)
+
+  keys = range(i)
+  for k in keys:
+    if k == 0: continue
+    cmd = "./rados -p {pool} setxattr {name} key{i}-{k} val{i}-{k}".format(pool=REP_POOL, name=NAME, i=i, k =k)
+    print cmd
+    call(cmd, shell=True)
+
+    # Create omap header in all objects but REPobject1
+
 #  
 #  echo "Creating $NUM_OBJECTS objects in replicated pool"
 #  mkdir -p $DATADIR
