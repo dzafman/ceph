@@ -103,6 +103,8 @@ print "Creating {objs} objects in replicated pool".format(objs=NUM_OBJECTS)
 cmd = "mkdir -p {datadir}".format(datadir=DATADIR)
 call(cmd, shell=True)
 
+db = {}
+
 objects = range(1,NUM_OBJECTS + 1)
 for i in objects:
   NAME = REP_NAME + "%d" %  i
@@ -121,14 +123,37 @@ for i in objects:
   cmd = "./rados -p {pool} put {name} {ddname}".format(pool=REP_POOL, name=NAME, ddname=DDNAME)
   call(cmd, shell=True, stderr=nullfd)
 
+  db[NAME] = {}
+
   keys = range(i)
+  db[NAME]["xattr"] = {}
   for k in keys:
     if k == 0: continue
-    cmd = "./rados -p {pool} setxattr {name} key{i}-{k} val{i}-{k}".format(pool=REP_POOL, name=NAME, i=i, k =k)
+    mykey = "key{i}-{k}".format(i=i, k=k)
+    myval = "val{i}-{k}".format(i=i, k=k)
+    cmd = "./rados -p {pool} setxattr {name} {key} {val}".format(pool=REP_POOL, name=NAME, key=mykey, val=myval)
     print cmd
     call(cmd, shell=True)
+    db[NAME]["xattr"][mykey] = myval
 
-    # Create omap header in all objects but REPobject1
+  # Create omap header in all objects but REPobject1
+  if i != 1:
+    myhdr = "hdr{i}".format(i=i)
+    cmd = "./rados -p {pool} setomapheader {name} {hdr}".format(pool=REP_POOL, name=NAME, hdr=myhdr)
+    print cmd
+    call(cmd, shell=True)
+    db[NAME]["omapheader"] = myhdr
+
+  db[NAME]["omap"] = {}
+  for k in keys:
+    if k == 0: continue
+    mykey = "okey{i}-{k}".format(i=i, k=k)
+    myval = "oval{i}-{k}".format(i=i, k=k)
+    cmd = "./rados -p {pool} setomapval {name} {key} {val}".format(pool=REP_POOL, name=NAME, key=mykey, val=myval)
+    print cmd
+    call(cmd, shell=True)
+    db[NAME]["omap"][mykey] = myval
+
 
 #  
 #  echo "Creating $NUM_OBJECTS objects in replicated pool"
@@ -165,6 +190,42 @@ for i in objects:
 #      ./rados -p $REP_POOL setomapval $NAME okey${i}-${k} oval${i}-${k}
 #    done
 #  done
+
+print "Creating {objs} objects in erasure coded pool".format(objs=NUM_OBJECTS)
+
+for i in objects:
+  NAME = EC_NAME + "%d" %  i
+  DDNAME = DATADIR + NAME
+
+  cmd = "rm -f " + DDNAME
+  call(cmd, shell=True)
+
+  f = open(DDNAME, "w")
+  data = "This is the erasure coded data for " + NAME + "\n"
+  for j in dataline:
+    f.write(data)
+  f.close()
+
+  cmd = "./rados -p {pool} put {name} {ddname}".format(pool=EC_POOL, name=NAME, ddname=DDNAME)
+  call(cmd, shell=True, stderr=nullfd)
+  
+  db[NAME] = {}
+
+  db[NAME]["xattr"] = {}
+  keys = range(i)
+  for k in keys:
+    if k == 0: continue
+    mykey = "key{i}-{k}".format(i=i, k=k)
+    myval = "val{i}-{k}".format(i=i, k=k)
+    cmd = "./rados -p {pool} setxattr {name} {key} {val}".format(pool=EC_POOL, name=NAME, key=mykey, val=myval)
+    print cmd
+    call(cmd, shell=True)
+    db[NAME]["xattr"][mykey] = myval
+
+  # Omap isn't supported in EC pools
+  db[NAME]["omap"] = {}
+
+print db
 #  
 #  echo "Creating $NUM_OBJECTS objects in erausre coded pool"
 #  for i in `seq 1 $NUM_OBJECTS`
@@ -188,6 +249,7 @@ for i in objects:
 #    # Omap isn't supported in EC pools
 #  done
 #  
+
 #  ./stop.sh > /dev/null 2>&1
 #  
 #  ALLREPPGS=`ls -d dev/*/current/${REPID}.*_head | awk -F / '{ print $4}' | sed 's/_head//' | sort -u`
