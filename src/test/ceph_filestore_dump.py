@@ -41,6 +41,23 @@ def get_pgs(DIR, ID):
   PGS = [re.sub("_head", "", p) for p in PGS]
   return sorted(set(PGS))
 
+# return a sorted list of PGS a subset of ALLPGS that contain objects with prefix specified
+def get_objs(ALLPGS, prefix, DIR, ID):
+  OSDS = [f for f in os.listdir(DIR) if os.path.isdir(os.path.join(DIR,f)) and string.find(f,"osd") == 0 ]
+  PGS = []
+  for d in OSDS:
+    DIRL2 = os.path.join(DIR, d)
+    SUBDIR = os.path.join(DIRL2, "current")
+    OBJS = []
+    for p in ALLPGS:
+      PGDIR = p + "_head"
+      if not os.path.isdir(os.path.join(SUBDIR, PGDIR)): continue
+      FINALDIR = os.path.join(SUBDIR, PGDIR)
+      # See if there are any objects there
+      if [f for f in os.listdir(FINALDIR) if os.path.isfile(os.path.join(FINALDIR, f)) and string.find(f, prefix) == 0 ]:
+        PGS += [p]
+  return sorted(set(PGS))
+
 sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 0)
 nullfd = open(os.devnull, "w")
 
@@ -270,6 +287,11 @@ ALLREPPGS=get_pgs("dev", REPID)
 print ALLREPPGS
 ALLECPGS = get_pgs("dev", ECID)
 print ALLECPGS
+
+OBJREPPGS = get_objs(ALLREPPGS, REP_NAME, "dev", REPID)
+print OBJREPPGS
+OBJECPGS = get_objs(ALLECPGS, EC_NAME, "dev", ECID)
+print OBJECPGS
 
 #  ./stop.sh > /dev/null 2>&1
 #  
