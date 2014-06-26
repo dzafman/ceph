@@ -6,6 +6,8 @@ from subprocess import check_output
 import os
 import time
 import sys
+import re
+import string
 
 #  wait_for_health() {
 #    echo -n "Wait for health_ok..."
@@ -26,6 +28,18 @@ def get_pool_id(name):
   cmd = "./ceph osd pool stats {pool}".format(pool = name).split()
   # pool {pool} id # .... grab the 4 field
   return check_output(cmd, stderr=nullfd).split()[3]
+
+# return a sorted list of unique PGs given a directory
+def get_pgs(DIR, ID):
+  OSDS = [f for f in os.listdir(DIR) if os.path.isdir(os.path.join(DIR,f)) and string.find(f,"osd") == 0 ]
+  PGS = []
+  endhead = re.compile("{id}.*_head$".format(id=ID))
+  for d in OSDS:
+    DIRL2 = os.path.join(DIR, d)
+    SUBDIR = os.path.join(DIRL2, "current")
+    PGS += [f for f in os.listdir(SUBDIR) if os.path.isdir(os.path.join(SUBDIR, f)) and endhead.match(f)]
+  PGS = [re.sub("_head", "", p) for p in PGS]
+  return sorted(set(PGS))
 
 sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 0)
 nullfd = open(os.devnull, "w")
@@ -249,6 +263,13 @@ print db
 #    # Omap isn't supported in EC pools
 #  done
 #  
+
+call("./stop.sh", stderr=nullfd)
+
+ALLREPPGS=get_pgs("dev", REPID)
+print ALLREPPGS
+ALLECPGS = get_pgs("dev", ECID)
+print ALLECPGS
 
 #  ./stop.sh > /dev/null 2>&1
 #  
