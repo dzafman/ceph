@@ -58,9 +58,22 @@ def get_objs(ALLPGS, prefix, DIR, ID):
         PGS += [p]
   return sorted(set(PGS))
 
+# return a sorted list of OSDS which have data from a given PG
+def get_osds(PG, DIR):
+  ALLOSDS = [f for f in os.listdir(DIR) if os.path.isdir(os.path.join(DIR,f)) and string.find(f,"osd") == 0 ]
+  for d in ALLOSDS:
+    DIRL2 = os.path.join(DIR, d)
+    SUBDIR = os.path.join(DIRL2, "current")
+    OSDS = []
+    PGDIR = PG + "_head"
+    if not os.path.isdir(os.path.join(SUBDIR, PGDIR)): continue
+    OSDS += [d]
+  return sorted(OSDS)
+
 sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 0)
 nullfd = open(os.devnull, "w")
 
+OSDDIR="dev"
 REP_POOL="rep_pool"
 REP_NAME="REPobject"
 EC_POOL="ec_pool"
@@ -283,14 +296,14 @@ print db
 
 call("./stop.sh", stderr=nullfd)
 
-ALLREPPGS=get_pgs("dev", REPID)
+ALLREPPGS=get_pgs(OSDDIR, REPID)
 print ALLREPPGS
-ALLECPGS = get_pgs("dev", ECID)
+ALLECPGS = get_pgs(OSDDIR, ECID)
 print ALLECPGS
 
-OBJREPPGS = get_objs(ALLREPPGS, REP_NAME, "dev", REPID)
+OBJREPPGS = get_objs(ALLREPPGS, REP_NAME, OSDDIR, REPID)
 print OBJREPPGS
-OBJECPGS = get_objs(ALLECPGS, EC_NAME, "dev", ECID)
+OBJECPGS = get_objs(ALLECPGS, EC_NAME, OSDDIR, ECID)
 print OBJECPGS
 
 #  ./stop.sh > /dev/null 2>&1
@@ -304,12 +317,44 @@ print OBJECPGS
 #  #echo OBJECT REP PGS: $OBJREPPGS
 #  OBJECPGS=`ls dev/*/current/${ECID}.*_head/${EC_NAME}* | awk -F / '{ print $4}' | sed 's/_head//' | sort -u`
 #  #echo OBJECT EC PGS: $OBJECPGS
+
+ONEPG=ALLREPPGS[0]
+osds=get_osds(ONEPG, OSDDIR)
+ONEOSD=osds[0]
+
 #  
-#  ONEPG=`echo $ALLREPPGS | awk '{ print $1 }'`
+#  ONEPG=`echo $OBJREPPGS | awk '{ print $1 }'`
 #  #echo $ONEPG
 #  ONEOSD=`ls -d dev/*/current/${ONEPG}_head | awk -F / '{ print $2 }' | head -1`
 #  #echo $ONEOSD
-#  
+
+
+def test_failure(cmd, errmsg):
+  ttyfd = open("/dev/tty", "rw")
+  TMPFILE=r"/tmp/tmp.{pid}".format(pid=pid)
+  tmpfd = open(TMPFILE, "w")
+
+  ret = call(cmd, shell=True, stdin=ttyfd, stdout=ttyfd, stderr=tmpfd)
+  ttyfd.close()
+  tmpfd.close()
+  if ret == 0:
+    print "Should have failed, but got exit 0"
+    return 1
+
+  tmpfd = open(TMPFILE, "r")
+  line = tmpfd.readline().rstrip('\n')
+  tmpfd.close()
+  if line == errmsg:
+    print "Correctly failed with message \"" + line + "\""
+    return 0
+  else:
+    print "Bad message to stderr \"" + line + "\""
+    return 1
+
+# On export can't use stdout to a terminal
+cmd = "./ceph_filestore_dump --filestore-path dev/{osd} --journal-path dev/{osd}.journal --type export --pgid {pg}".format(osd=ONEOSD, pg=ONEPG)
+ERRORS += test_failure(cmd, "stdout is a tty and no --file option specified")
+
 #  # On export can't use stdout to a terminal
 #  ./ceph_filestore_dump --filestore-path dev/$ONEOSD --journal-path dev/$ONEOSD.journal --type export --pgid $ONEPG > /dev/tty 2> /tmp/tmp.$$
 #  if [ $? = "0" ];
@@ -325,6 +370,17 @@ print OBJECPGS
 #    ERRORS=`expr $ERRORS + 1`
 #  fi
 #  
+
+OTHERFILE="/tmp/foo.{pid}".format(pid=pid)
+foofd = open(OTHERFILE, "w")
+foofd.close()
+
+#  # On import can't specify a PG
+cmd = "./ceph_filestore_dump --filestore-path dev/{osd} --journal-path dev/{osd}.journal --type import --pgid {pg} --file {FOO}".format(osd=ONEOSD,\
+    pg=ONEPG, FOO=OTHERFILE)
+ERRORS += test_failure(cmd, "--pgid option invalid with import")
+
+
 #  # On import can't specify a PG
 #  touch /tmp/foo.$$
 #  ./ceph_filestore_dump --filestore-path dev/$ONEOSD --journal-path dev/$ONEOSD.journal --type import --pgid $ONEPG --file /tmp/foo.$$ 2> /tmp/tmp.$$
@@ -340,6 +396,11 @@ print OBJECPGS
 #    echo Bad message to stderr \"`head -1 /tmp/tmp.$$`\"
 #    ERRORS=`expr $ERRORS + 1`
 #  fi
+
+os.unlink(OTHERFILE)
+cmd = "./ceph_filestore_dump --filestore-path dev/{osd} --journal-path dev/{osd}.journal --type import --file {FOO}".format(osd=ONEOSD, FOO=OTHERFILE)
+ERRORS += test_failure(cmd, "open: No such file or directory")
+
 #  rm -f /tmp/foo.$$
 #  
 #  # On import input file not found
@@ -357,6 +418,11 @@ print OBJECPGS
 #    ERRORS=`expr $ERRORS + 1`
 #  fi
 #  
+
+# On import can't use stdin from a terminal
+cmd = "./ceph_filestore_dump --filestore-path dev/{osd} --journal-path dev/{osd}.journal --type import --pgid {pg}".format(osd=ONEOSD, pg=ONEPG)
+ERRORS += test_failure(cmd, "stdin is a tty and no --file option specified")
+
 #  # On import can't use stdin from a terminal
 #  ./ceph_filestore_dump --filestore-path dev/$ONEOSD --journal-path dev/$ONEOSD.journal --type import --pgid $ONEPG < /dev/tty 2> /tmp/tmp.$$
 #  if [ $? = "0" ];
@@ -373,6 +439,8 @@ print OBJECPGS
 #  fi
 #  
 #  rm -f /tmp/tmp.$$
+#  
+
 #  
 #  # Test --type list and generate json for all objects
 #  echo "Testing --type list by generating json for all objects"
@@ -672,6 +740,14 @@ print OBJECPGS
 #  fi
 #  
 #  rm -rf $DATADIR $JSONOBJ
+
+if ERRORS == 0:
+  print "TEST PASSED"
+  sys.exit(0)
+else:
+  print "TEST FAILED WITH {errcount} ERRORS".format(errcount=ERRORS)
+  sys.exit(1)
+
 #  
 #  if [ $ERRORS = "0" ];
 #  then
