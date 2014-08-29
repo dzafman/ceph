@@ -2321,6 +2321,60 @@ ostream& operator<<(ostream& out, const pg_missing_t& missing);
  * pg list objects response format
  *
  */
+struct pg_nls_response_t {
+  collection_list_handle_t handle;
+  list<librados::ListObject_t> entries;
+
+  void encode(bufferlist& bl) const {
+    ENCODE_START(1, 1, bl);
+    ::encode(handle, bl);
+    ::encode(entries, bl);
+    ENCODE_FINISH(bl);
+  }
+  void decode(bufferlist::iterator& bl) {
+    DECODE_START(1, bl);
+    ::decode(handle, bl);
+    ::decode(entries, bl);
+    DECODE_FINISH(bl);
+  }
+  void dump(Formatter *f) const {
+    f->dump_stream("handle") << handle;
+    f->open_array_section("entries");
+    for (list<librados::ListObject_t>::const_iterator p = entries.begin(); p != entries.end(); ++p) {
+      f->open_object_section("object");
+      f->dump_string("namespace", p->nspace);
+      f->dump_string("object", p->oid);
+      f->dump_string("key", p->locator);
+      f->close_section();
+    }
+    f->close_section();
+  }
+  static void generate_test_instances(list<pg_nls_response_t*>& o) {
+    o.push_back(new pg_nls_response_t);
+    o.push_back(new pg_nls_response_t);
+    o.back()->handle = hobject_t(object_t("hi"), "key", 1, 2, -1, "");
+    o.back()->entries.push_back(librados::ListObject_t("", "one", ""));
+    o.back()->entries.push_back(librados::ListObject_t("", "two", "twokey"));
+    o.back()->entries.push_back(librados::ListObject_t("", "three", ""));
+    o.push_back(new pg_nls_response_t);
+    o.back()->handle = hobject_t(object_t("hi"), "key", 3, 4, -1, "");
+    o.back()->entries.push_back(librados::ListObject_t("n1", "n1one", ""));
+    o.back()->entries.push_back(librados::ListObject_t("n1", "n1two", "n1twokey"));
+    o.back()->entries.push_back(librados::ListObject_t("n1", "n1three", ""));
+    o.push_back(new pg_nls_response_t);
+    o.back()->handle = hobject_t(object_t("hi"), "key", 5, 6, -1, "");
+    o.back()->entries.push_back(librados::ListObject_t("", "one", ""));
+    o.back()->entries.push_back(librados::ListObject_t("", "two", "twokey"));
+    o.back()->entries.push_back(librados::ListObject_t("", "three", ""));
+    o.back()->entries.push_back(librados::ListObject_t("n1", "n1one", ""));
+    o.back()->entries.push_back(librados::ListObject_t("n1", "n1two", "n1twokey"));
+    o.back()->entries.push_back(librados::ListObject_t("n1", "n1three", ""));
+  }
+};
+
+WRITE_CLASS_ENCODER(pg_nls_response_t)
+
+// For backwards compatibility with older OSD requests
 struct pg_ls_response_t {
   collection_list_handle_t handle; 
   list<pair<object_t, string> > entries;
