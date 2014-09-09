@@ -37,16 +37,17 @@ typedef RadosTestECPP LibRadosTierECPP;
 void flush_evict_all(librados::Rados& cluster, librados::IoCtx& cache_ioctx)
 {
   bufferlist inbl;
-  cache_ioctx.set_namespace("");
-  for (ObjectIterator it = cache_ioctx.objects_begin();
-       it != cache_ioctx.objects_end(); ++it) {
-    cache_ioctx.locator_set_key(it->second);
+  cache_ioctx.set_namespace(all_nspaces);
+  for (NObjectIterator it = cache_ioctx.nobjects_begin();
+       it != cache_ioctx.nobjects_end(); ++it) {
+    cache_ioctx.locator_set_key(it->locator);
+    cache_ioctx.set_namespace(it->nspace);
     {
       ObjectReadOperation op;
       op.cache_flush();
       librados::AioCompletion *completion = cluster.aio_create_completion();
       cache_ioctx.aio_operate(
-        it->first, completion, &op,
+        it->oid, completion, &op,
 	librados::OPERATION_IGNORE_OVERLAY, NULL);
       completion->wait_for_safe();
       completion->get_return_value();
@@ -57,7 +58,7 @@ void flush_evict_all(librados::Rados& cluster, librados::IoCtx& cache_ioctx)
       op.cache_evict();
       librados::AioCompletion *completion = cluster.aio_create_completion();
       cache_ioctx.aio_operate(
-        it->first, completion, &op,
+        it->oid, completion, &op,
 	librados::OPERATION_IGNORE_OVERLAY, NULL);
       completion->wait_for_safe();
       completion->get_return_value();
@@ -90,8 +91,6 @@ protected:
     cache_ioctx.set_namespace(nspace);
   }
   virtual void TearDown() {
-    RadosTestPP::TearDown();
-
     // flush + evict cache
     flush_evict_all(cluster, cache_ioctx);
 
@@ -109,7 +108,10 @@ protected:
     // wait for maps to settle before next test
     cluster.wait_for_latest_osdmap();
 
-    cleanup_all_objects(cache_ioctx);
+    RadosTestPP::TearDown();
+
+    cleanup_default_namespace(cache_ioctx);
+    cleanup_namespace(cache_ioctx, nspace);
 
     cache_ioctx.close();
   }
@@ -425,6 +427,9 @@ TEST_F(LibRadosTwoPoolsPP, PromoteSnap) {
     bufferlist bl;
     ASSERT_EQ(-ENOENT, ioctx.read("baz", bl, 1, 0));
   }
+
+  // cleanup
+  ioctx.selfmanaged_snap_remove(my_snaps[0]);
 }
 
 TEST_F(LibRadosTwoPoolsPP, PromoteSnapScrub) {
@@ -521,8 +526,12 @@ TEST_F(LibRadosTwoPoolsPP, PromoteSnapScrub) {
   }
 
   ioctx.snap_set_read(librados::SNAP_HEAD);
-}
 
+  //cleanup
+  for (unsigned snap = 0; snap < my_snaps.size(); ++snap) {
+    ioctx.selfmanaged_snap_remove(my_snaps[snap]);
+  }
+}
 
 TEST_F(LibRadosTwoPoolsPP, PromoteSnapTrimRace) {
   // create object
@@ -576,6 +585,9 @@ TEST_F(LibRadosTwoPoolsPP, PromoteSnapTrimRace) {
     bufferlist bl;
     ASSERT_EQ(-ENOENT, ioctx.read("foo", bl, 1, 0));
   }
+
+  // cleanup
+  ioctx.selfmanaged_snap_remove(my_snaps[0]);
 }
 
 TEST_F(LibRadosTwoPoolsPP, Whiteout) {
@@ -964,6 +976,9 @@ TEST_F(LibRadosTwoPoolsPP, EvictSnap) {
     ASSERT_EQ(0, completion->get_return_value());
     completion->release();
   }
+
+  // cleanup
+  ioctx.selfmanaged_snap_remove(my_snaps[0]);
 }
 
 TEST_F(LibRadosTwoPoolsPP, TryFlush) {
@@ -1397,6 +1412,9 @@ TEST_F(LibRadosTwoPoolsPP, FlushSnap) {
     "\"}",
     inbl, NULL, NULL));
 
+  // wait for maps to settle
+  cluster.wait_for_latest_osdmap();
+
   // verify i can read the snaps from the base pool
   ioctx.snap_set_read(librados::SNAP_HEAD);
   {
@@ -1421,6 +1439,9 @@ TEST_F(LibRadosTwoPoolsPP, FlushSnap) {
     "{\"prefix\": \"osd tier set-overlay\", \"pool\": \"" + pool_name +
     "\", \"overlaypool\": \"" + cache_pool_name + "\"}",
     inbl, NULL, NULL));
+
+  // cleanup
+  ioctx.selfmanaged_snap_remove(my_snaps[0]);
 }
 
 TEST_F(LibRadosTierPP, FlushWriteRaces) {
@@ -2197,8 +2218,6 @@ protected:
     cache_ioctx.set_namespace(nspace);
   }
   virtual void TearDown() {
-    RadosTestECPP::TearDown();
-
     // flush + evict cache
     flush_evict_all(cluster, cache_ioctx);
 
@@ -2216,7 +2235,10 @@ protected:
     // wait for maps to settle before next test
     cluster.wait_for_latest_osdmap();
 
-    cleanup_all_objects(cache_ioctx);
+    RadosTestECPP::TearDown();
+
+    cleanup_default_namespace(cache_ioctx);
+    cleanup_namespace(cache_ioctx, nspace);
 
     cache_ioctx.close();
   }
@@ -2557,6 +2579,9 @@ TEST_F(LibRadosTwoPoolsECPP, PromoteSnap) {
     bufferlist bl;
     ASSERT_EQ(-ENOENT, ioctx.read("baz", bl, 1, 0));
   }
+
+  // cleanup
+  ioctx.selfmanaged_snap_remove(my_snaps[0]);
 }
 
 TEST_F(LibRadosTwoPoolsECPP, PromoteSnapTrimRace) {
@@ -2611,6 +2636,9 @@ TEST_F(LibRadosTwoPoolsECPP, PromoteSnapTrimRace) {
     bufferlist bl;
     ASSERT_EQ(-ENOENT, ioctx.read("foo", bl, 1, 0));
   }
+
+  // cleanup
+  ioctx.selfmanaged_snap_remove(my_snaps[0]);
 }
 
 TEST_F(LibRadosTwoPoolsECPP, Whiteout) {
@@ -2999,6 +3027,9 @@ TEST_F(LibRadosTwoPoolsECPP, EvictSnap) {
     ASSERT_EQ(0, completion->get_return_value());
     completion->release();
   }
+
+  // cleanup
+  ioctx.selfmanaged_snap_remove(my_snaps[0]);
 }
 
 TEST_F(LibRadosTwoPoolsECPP, TryFlush) {
@@ -3459,6 +3490,10 @@ TEST_F(LibRadosTwoPoolsECPP, FlushSnap) {
     "{\"prefix\": \"osd tier set-overlay\", \"pool\": \"" + pool_name +
     "\", \"overlaypool\": \"" + cache_pool_name + "\"}",
     inbl, NULL, NULL));
+  cluster.wait_for_latest_osdmap();
+
+  // cleanup
+  ioctx.selfmanaged_snap_remove(my_snaps[0]);
 }
 
 TEST_F(LibRadosTierECPP, FlushWriteRaces) {
