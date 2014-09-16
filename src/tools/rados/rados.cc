@@ -168,7 +168,7 @@ void usage(ostream& out)
 "        Use with ls to list objects in all namespaces\n"
 "        Put in CEPH_ARGS environment variable to make this the default\n"
 "   --default\n"
-"        Use with ls to list objects in default namespaces\n"
+"        Use with ls to list objects in default namespace\n"
 "        Takes precedence over --all in case --all is in environment\n"
 "   --target-locator\n"
 "        Use with cp to specify the locator of the new object\n"
@@ -1212,7 +1212,7 @@ static int rados_tool_common(const std::map < std::string, std::string > &opts,
   int run_length = 0;
 
   bool show_time = false;
-  bool all_nspace = false;
+  bool wildcard = false;
 
   const char* run_name = NULL;
   const char* prefix = NULL;
@@ -1410,8 +1410,8 @@ static int rados_tool_common(const std::map < std::string, std::string > &opts,
     io_ctx.set_namespace(nspace);
   // Use wildcard if --all specified and --default NOT specified
   } else if (opts.find("all") != opts.end() && opts.find("default") == opts.end()) {
-    io_ctx.set_namespace(all_nspaces);
-    all_nspace = true;
+    // Only the ls should ever set namespace to special value
+    wildcard = true;
   }
   if (snapid != CEPH_NOSNAP) {
     string name;
@@ -1562,6 +1562,8 @@ static int rados_tool_common(const std::map < std::string, std::string > &opts,
       goto out;
     }
 
+    if (wildcard)
+      io_ctx.set_namespace(all_nspaces);
     bool stdout = (nargs.size() < 2) || (strcmp(nargs[1], "-") == 0);
     ostream *outstream;
     if(stdout)
@@ -1578,7 +1580,7 @@ static int rados_tool_common(const std::map < std::string, std::string > &opts,
 	for (; i != i_end; ++i) {
 	  if (!formatter) {
 	    // Only include namespace in output when wildcard specified
-	    if (all_nspace)
+	    if (wildcard)
 	      *outstream << i->nspace << "\t";
 	    *outstream << i->oid;
 	    if (i->locator.size())
@@ -2626,8 +2628,6 @@ int main(int argc, const char **argv)
   std::vector<const char*>::iterator i;
   std::string val;
   for (i = args.begin(); i != args.end(); ) {
-    // XXX: This is bad if CEPH_ARGS set because those args are tacked
-    // onto the end of argument list.
     if (ceph_argparse_double_dash(args, i)) {
       break;
     } else if (ceph_argparse_flag(args, i, "-h", "--help", (char*)NULL)) {
