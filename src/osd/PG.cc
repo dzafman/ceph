@@ -202,7 +202,8 @@ PG::PG(OSDService *o, OSDMapRef curmap,
   scrub_after_recovery(false),
   active_pushes(0),
   recovery_state(this),
-  pg_id(p)
+  pg_id(p),
+  peer_features((uint64_t)-1)
 {
 #ifdef PG_DEBUG_REFS
   osd->add_pgid(p, this);
@@ -5141,6 +5142,7 @@ void PG::queue_peering_event(CephPeeringEvtRef evt)
   osd->queue_for_peering(this);
 }
 
+#if 0
 void PG::queue_notify(epoch_t msg_epoch,
 		      epoch_t query_epoch,
 		      pg_shard_t from, pg_notify_t& i)
@@ -5150,6 +5152,7 @@ void PG::queue_notify(epoch_t msg_epoch,
     CephPeeringEvtRef(new CephPeeringEvt(msg_epoch, query_epoch,
 					 MNotifyRec(from, i))));
 }
+#endif
 
 void PG::queue_info(epoch_t msg_epoch,
 		     epoch_t query_epoch,
@@ -6710,6 +6713,8 @@ PG::RecoveryState::GetInfo::GetInfo(my_context ctx)
   if (!prior_set.get())
     pg->build_prior(prior_set);
 
+  dout(10) << "DZ: reset_peer_features for pg " << pg << dendl;
+  pg->reset_peer_features();
   get_infos();
   if (peer_info_requested.empty() && !prior_set->pg_down) {
     post_event(GotInfo());
@@ -6785,6 +6790,7 @@ boost::statechart::result PG::RecoveryState::GetInfo::react(const MNotifyRec& in
       }
       get_infos();
     }
+    pg->apply_peer_features(infoevt.features);
 
     // are we done getting everything?
     if (peer_info_requested.empty() && !prior_set->pg_down) {
