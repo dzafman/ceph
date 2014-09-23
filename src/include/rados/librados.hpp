@@ -63,6 +63,27 @@ namespace librados
   typedef void *completion_t;
   typedef void (*callback_t)(completion_t cb, void *arg);
 
+  class ListObjectImpl;
+
+  class ListObject
+  {
+  public:
+    std::string get_nspace() const;
+    std::string get_oid() const;
+    std::string get_locator() const;
+
+    ListObject();
+    ~ListObject();
+    ListObject( const ListObject&);
+    ListObject& operator=(const ListObject& rhs);
+  private:
+    ListObject(ListObjectImpl *impl);
+
+    friend class NObjectIterator;
+
+    ListObjectImpl *impl;
+  };
+
   class NObjectIterator : public std::iterator <std::forward_iterator_tag, std::string> {
   public:
     static const NObjectIterator __EndObjectIterator;
@@ -74,8 +95,8 @@ namespace librados
 
     bool operator==(const NObjectIterator& rhs) const;
     bool operator!=(const NObjectIterator& rhs) const;
-    const ListObject_t& operator*() const;
-    const ListObject_t* operator->() const;
+    const ListObject& operator*() const;
+    const ListObject* operator->() const;
     NObjectIterator &operator++(); // Preincrement
     NObjectIterator operator++(int); // Postincrement
     friend class IoCtx;
@@ -90,7 +111,7 @@ namespace librados
   private:
     void get_next();
     ceph::shared_ptr < ObjListCtx > ctx;
-    ListObject_t cur_obj;
+    ListObject cur_obj;
   };
 
   // DEPRECATED; Use NObjectIterator

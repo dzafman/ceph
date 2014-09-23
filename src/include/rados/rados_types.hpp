@@ -41,40 +41,5 @@ struct snap_set_t {
  */
 const std::string all_nspaces(LIBRADOS_ALL_NSPACES);
 
-/**
- * @struct ListObject_t
- * Type dereferenced from a NObjectIterator
- */
-struct ListObject_t {
-  std::string nspace;
-  std::string oid;
-  std::string locator;
-  ListObject_t(std::string n, std::string o, std::string l) : nspace(n), oid(o), locator(l) {}
-  ListObject_t() {}
-  void encode(bufferlist &bl) const {
-    ENCODE_START(1, 1, bl);
-    ::encode(nspace, bl);
-    ::encode(oid, bl);
-    ::encode(locator, bl);
-    ENCODE_FINISH(bl);
-  }
-  void decode(bufferlist::iterator &bl) {
-    DECODE_START(1, bl);
-    ::decode(nspace, bl);
-    ::decode(oid, bl);
-    ::decode(locator, bl);
-    DECODE_FINISH(bl);
-  }
-};
-WRITE_CLASS_ENCODER(ListObject_t)
-
-WRITE_EQ_OPERATORS_3(ListObject_t, nspace, oid, locator)
-WRITE_CMP_OPERATORS_3(ListObject_t, nspace, oid, locator)
-}
-
-inline std::ostream& operator<<(std::ostream& out, const struct librados::ListObject_t& lop) {
-  out << (lop.nspace.size() ? lop.nspace + "/" : "") << lop.oid
-      << (lop.locator.size() ? "@" + lop.locator : "");
-  return out;
 }
 #endif

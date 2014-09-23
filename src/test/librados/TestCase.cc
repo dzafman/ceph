@@ -87,9 +87,9 @@ void RadosTestPPNS::cleanup_all_objects(librados::IoCtx ioctx)
   ioctx.set_namespace(all_nspaces);
   for (NObjectIterator it = ioctx.nobjects_begin();
        it != ioctx.nobjects_end(); ++it) {
-    ioctx.locator_set_key(it->locator);
-    ioctx.set_namespace(it->nspace);
-    ASSERT_EQ(0, ioctx.remove(it->oid));
+    ioctx.locator_set_key(it->get_locator());
+    ioctx.set_namespace(it->get_nspace());
+    ASSERT_EQ(0, ioctx.remove(it->get_oid()));
   }
 }
 
@@ -167,9 +167,9 @@ void RadosTestParamPPNS::cleanup_all_objects(librados::IoCtx ioctx)
   ioctx.set_namespace(all_nspaces);
   for (NObjectIterator it = ioctx.nobjects_begin();
        it != ioctx.nobjects_end(); ++it) {
-    ioctx.locator_set_key(it->locator);
-    ioctx.set_namespace(it->nspace);
-    ASSERT_EQ(0, ioctx.remove(it->oid));
+    ioctx.locator_set_key(it->get_locator());
+    ioctx.set_namespace(it->get_nspace());
+    ASSERT_EQ(0, ioctx.remove(it->get_oid()));
   }
 }
 
@@ -326,8 +326,8 @@ void RadosTestPP::cleanup_namespace(librados::IoCtx ioctx, std::string ns)
   ioctx.set_namespace(ns);
   for (NObjectIterator it = ioctx.nobjects_begin();
        it != ioctx.nobjects_end(); ++it) {
-    ioctx.locator_set_key(it->locator);
-    ASSERT_EQ(0, ioctx.remove(it->oid));
+    ioctx.locator_set_key(it->get_locator());
+    ASSERT_EQ(0, ioctx.remove(it->get_oid()));
   }
 }
 
@@ -414,8 +414,8 @@ void RadosTestParamPP::cleanup_namespace(librados::IoCtx ioctx, std::string ns)
   ioctx.set_namespace(ns);
   for (NObjectIterator it = ioctx.nobjects_begin();
        it != ioctx.nobjects_end(); ++it) {
-    ioctx.locator_set_key(it->locator);
-    ASSERT_EQ(0, ioctx.remove(it->oid));
+    ioctx.locator_set_key(it->get_locator());
+    ASSERT_EQ(0, ioctx.remove(it->get_oid()));
   }
 }
 

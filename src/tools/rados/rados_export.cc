@@ -188,7 +188,7 @@ int do_rados_export(ThreadPool *tp, IoCtx& io_ctx,
   ExportLocalFileWQ export_object_wq(io_ctx_dist, time(NULL),
 				     tp, export_dir.get(), force);
   for (; oi != oi_end; ++oi) {
-    export_object_wq.queue(new std::string((*oi).oid));
+    export_object_wq.queue(new std::string((*oi).get_oid()));
   }
   export_object_wq.drain();
 

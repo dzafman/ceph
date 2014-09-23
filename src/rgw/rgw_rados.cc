@@ -1694,7 +1694,7 @@ int RGWRados::list_buckets_next(RGWObjEnt& obj, RGWAccessHandle *handle)
       return -ENOENT;
     }
 
-    obj.name = (*state)->oid;
+    obj.name = (*state)->get_oid();
     (*state)++;
   } while (obj.name[0] == '.'); /* skip all entries starting with '.' */
 
@@ -1734,11 +1734,11 @@ int RGWRados::log_list_next(RGWAccessHandle handle, string *name)
       return -ENOENT;
     }
     if (state->prefix.length() &&
-	state->obit->oid.find(state->prefix) != 0) {
+	state->obit->get_oid().find(state->prefix) != 0) {
       state->obit++;
       continue;
     }
-    *name = state->obit->oid;
+    *name = state->obit->get_oid();
     state->obit++;
     break;
   }
@@ -5792,7 +5792,7 @@ int RGWRados::pool_iterate(RGWPoolIterCtx& ctx, uint32_t num, vector<RGWObjEnt>&
   for (i = 0; i < num && iter != io_ctx.nobjects_end(); ++i, ++iter) {
     RGWObjEnt e;
 
-    string oid = iter->oid;
+    string oid = iter->get_oid();
     ldout(cct, 20) << "RGWRados::pool_iterate: got " << oid << dendl;
 
     // fill it in with initial values; we may correct later

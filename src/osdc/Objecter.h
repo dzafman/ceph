@@ -1256,7 +1256,7 @@ public:
     string nspace;
 
     bufferlist bl;   // raw data read to here
-    std::list<librados::ListObject_t> list;
+    std::list<librados::ListObjectImpl> list;
 
     bufferlist filter;
 

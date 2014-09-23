@@ -942,7 +942,7 @@ void ReplicatedPG::do_pg_op(OpRequestRef op)
 	  if (filter && !pgls_filter(filter, candidate, filter_out))
 	    continue;
 
-	  librados::ListObject_t item;
+	  librados::ListObjectImpl item;
 	  item.nspace = candidate.get_namespace();
 	  item.oid = candidate.oid.name;
 	  item.locator = candidate.get_key();

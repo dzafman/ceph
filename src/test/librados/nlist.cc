@@ -43,7 +43,7 @@ TEST_F(LibRadosListPP, ListObjectsPP) {
   bool foundit = false;
   while (iter != ioctx.nobjects_end()) {
     foundit = true;
-    ASSERT_EQ((*iter).oid, "foo");
+    ASSERT_EQ((*iter).get_oid(), "foo");
     ++iter;
   }
   ASSERT_TRUE(foundit);
@@ -58,8 +58,9 @@ TEST_F(LibRadosListPP, ListObjectsTwicePP) {
   NObjectIterator iter(ioctx.nobjects_begin());
   bool foundit = false;
   while (iter != ioctx.nobjects_end()) {
+    ListObject lo = *iter;
     foundit = true;
-    ASSERT_EQ((*iter).oid, "foo");
+    ASSERT_EQ(lo.get_oid(), "foo");
     ++iter;
   }
   ASSERT_TRUE(foundit);
@@ -69,7 +70,7 @@ TEST_F(LibRadosListPP, ListObjectsTwicePP) {
   iter.seek(0);
   while (iter != ioctx.nobjects_end()) {
     foundit = true;
-    ASSERT_EQ((*iter).oid, "foo");
+    ASSERT_EQ((*iter).get_oid(), "foo");
     ++iter;
   }
   ASSERT_TRUE(foundit);
@@ -88,21 +89,21 @@ TEST_F(LibRadosListPP, ListObjectsCopyIterPP) {
     NObjectIterator iter(ioctx.nobjects_begin());
     NObjectIterator iter2(iter);
     iter3 = iter2;
-    ASSERT_EQ((*iter).oid, "foo");
+    ASSERT_EQ((*iter).get_oid(), "foo");
     ++iter;
     ASSERT_TRUE(iter == ioctx.nobjects_end());
     ++iter;
     ASSERT_TRUE(iter == ioctx.nobjects_end());
 
-    ASSERT_EQ(iter2->oid, "foo");
-    ASSERT_EQ(iter3->oid, "foo");
+    ASSERT_EQ(iter2->get_oid(), "foo");
+    ASSERT_EQ(iter3->get_oid(), "foo");
     ++iter2;
     ASSERT_TRUE(iter2 == ioctx.nobjects_end());
   }
 
-  ASSERT_EQ(iter3->oid, "foo");
+  ASSERT_EQ(iter3->get_oid(), "foo");
   iter3 = iter3;
-  ASSERT_EQ(iter3->oid, "foo");
+  ASSERT_EQ(iter3->get_oid(), "foo");
   ++iter3;
   ASSERT_TRUE(iter3 == ioctx.nobjects_end());
 }
@@ -121,7 +122,7 @@ TEST_F(LibRadosListPP, ListObjectsEndIter) {
   ASSERT_TRUE(iter_end == ioctx.nobjects_end());
   ASSERT_TRUE(iter_end2 == ioctx.nobjects_end());
 
-  ASSERT_EQ(iter->oid, "foo");
+  ASSERT_EQ(iter->get_oid(), "foo");
   ++iter;
   ASSERT_TRUE(iter == ioctx.nobjects_end());
   ASSERT_TRUE(iter == iter_end);
@@ -234,10 +235,10 @@ static void check_listpp(std::set<std::string>& myset, IoCtx& ioctx, std::string
   while (iter != ioctx.nobjects_end()) {
     std::string test_name;
     if (check_nspace == all_nspaces) {
-      test_name = iter->nspace + ":" + iter->oid;
+      test_name = iter->get_nspace() + ":" + iter->get_oid();
     } else {
-      ASSERT_TRUE(iter->nspace == check_nspace);
-      test_name = iter->oid;
+      ASSERT_TRUE(iter->get_nspace() == check_nspace);
+      test_name = iter->get_oid();
     }
     ASSERT_TRUE(orig_set.end() != orig_set.find(test_name));
     myset.erase(test_name);
@@ -311,9 +312,9 @@ TEST_F(LibRadosListPP, ListObjectsManyPP) {
   std::set<std::string> saw_obj;
   std::set<int> saw_pg;
   for (; it != ioctx.nobjects_end(); ++it) {
-    std::cout << it->oid
+    std::cout << it->get_oid()
 	      << " " << it.get_pg_hash_position() << std::endl;
-    saw_obj.insert(it->oid);
+    saw_obj.insert(it->get_oid());
     saw_pg.insert(it.get_pg_hash_position());
   }
   std::cout << "saw " << saw_pg.size() << " pgs " << std::endl;
@@ -369,8 +370,8 @@ TEST_F(LibRadosListPP, ListObjectsStartPP) {
   librados::NObjectIterator it = ioctx.nobjects_begin();
   std::map<int, std::set<std::string> > pg_to_obj;
   for (; it != ioctx.nobjects_end(); ++it) {
-    std::cout << it->oid << " " << it.get_pg_hash_position() << std::endl;
-    pg_to_obj[it.get_pg_hash_position()].insert(it->oid);
+    std::cout << it->get_oid() << " " << it.get_pg_hash_position() << std::endl;
+    pg_to_obj[it.get_pg_hash_position()].insert(it->get_oid());
   }
 
   std::map<int, std::set<std::string> >::reverse_iterator p =
@@ -378,8 +379,8 @@ TEST_F(LibRadosListPP, ListObjectsStartPP) {
   it = ioctx.nobjects_begin(p->first);
   while (p != pg_to_obj.rend()) {
     ASSERT_EQ((uint32_t)p->first, it.seek(p->first));
-    std::cout << "have " << it->oid << " expect one of " << p->second << std::endl;
-    ASSERT_TRUE(p->second.count(it->oid));
+    std::cout << "have " << it->get_oid() << " expect one of " << p->second << std::endl;
+    ASSERT_TRUE(p->second.count(it->get_oid()));
     ++p;
   }
 }
@@ -410,7 +411,7 @@ TEST_F(LibRadosListECPP, ListObjectsPP) {
   bool foundit = false;
   while (iter != ioctx.nobjects_end()) {
     foundit = true;
-    ASSERT_EQ((*iter).oid, "foo");
+    ASSERT_EQ((*iter).get_oid(), "foo");
     ++iter;
   }
   ASSERT_TRUE(foundit);
@@ -426,7 +427,7 @@ TEST_F(LibRadosListECPP, ListObjectsTwicePP) {
   bool foundit = false;
   while (iter != ioctx.nobjects_end()) {
     foundit = true;
-    ASSERT_EQ((*iter).oid, "foo");
+    ASSERT_EQ((*iter).get_oid(), "foo");
     ++iter;
   }
   ASSERT_TRUE(foundit);
@@ -436,7 +437,7 @@ TEST_F(LibRadosListECPP, ListObjectsTwicePP) {
   iter.seek(0);
   while (iter != ioctx.nobjects_end()) {
     foundit = true;
-    ASSERT_EQ((*iter).oid, "foo");
+    ASSERT_EQ((*iter).get_oid(), "foo");
     ++iter;
   }
   ASSERT_TRUE(foundit);
@@ -455,21 +456,21 @@ TEST_F(LibRadosListECPP, ListObjectsCopyIterPP) {
     NObjectIterator iter(ioctx.nobjects_begin());
     NObjectIterator iter2(iter);
     iter3 = iter2;
-    ASSERT_EQ((*iter).oid, "foo");
+    ASSERT_EQ((*iter).get_oid(), "foo");
     ++iter;
     ASSERT_TRUE(iter == ioctx.nobjects_end());
     ++iter;
     ASSERT_TRUE(iter == ioctx.nobjects_end());
 
-    ASSERT_EQ(iter2->oid, "foo");
-    ASSERT_EQ(iter3->oid, "foo");
+    ASSERT_EQ(iter2->get_oid(), "foo");
+    ASSERT_EQ(iter3->get_oid(), "foo");
     ++iter2;
     ASSERT_TRUE(iter2 == ioctx.nobjects_end());
   }
 
-  ASSERT_EQ(iter3->oid, "foo");
+  ASSERT_EQ(iter3->get_oid(), "foo");
   iter3 = iter3;
-  ASSERT_EQ(iter3->oid, "foo");
+  ASSERT_EQ(iter3->get_oid(), "foo");
   ++iter3;
   ASSERT_TRUE(iter3 == ioctx.nobjects_end());
 }
@@ -488,7 +489,7 @@ TEST_F(LibRadosListECPP, ListObjectsEndIter) {
   ASSERT_TRUE(iter_end == ioctx.nobjects_end());
   ASSERT_TRUE(iter_end2 == ioctx.nobjects_end());
 
-  ASSERT_EQ(iter->oid, "foo");
+  ASSERT_EQ(iter->get_oid(), "foo");
   ++iter;
   ASSERT_TRUE(iter == ioctx.nobjects_end());
   ASSERT_TRUE(iter == iter_end);
@@ -615,9 +616,9 @@ TEST_F(LibRadosListECPP, ListObjectsManyPP) {
   std::set<std::string> saw_obj;
   std::set<int> saw_pg;
   for (; it != ioctx.nobjects_end(); ++it) {
-    std::cout << it->oid
+    std::cout << it->get_oid()
 	      << " " << it.get_pg_hash_position() << std::endl;
-    saw_obj.insert(it->oid);
+    saw_obj.insert(it->get_oid());
     saw_pg.insert(it.get_pg_hash_position());
   }
   std::cout << "saw " << saw_pg.size() << " pgs " << std::endl;
@@ -673,8 +674,8 @@ TEST_F(LibRadosListECPP, ListObjectsStartPP) {
   librados::NObjectIterator it = ioctx.nobjects_begin();
   std::map<int, std::set<std::string> > pg_to_obj;
   for (; it != ioctx.nobjects_end(); ++it) {
-    std::cout << it->oid << " " << it.get_pg_hash_position() << std::endl;
-    pg_to_obj[it.get_pg_hash_position()].insert(it->oid);
+    std::cout << it->get_oid() << " " << it.get_pg_hash_position() << std::endl;
+    pg_to_obj[it.get_pg_hash_position()].insert(it->get_oid());
   }
 
   std::map<int, std::set<std::string> >::reverse_iterator p =
@@ -682,8 +683,8 @@ TEST_F(LibRadosListECPP, ListObjectsStartPP) {
   it = ioctx.nobjects_begin(p->first);
   while (p != pg_to_obj.rend()) {
     ASSERT_EQ((uint32_t)p->first, it.seek(p->first));
-    std::cout << "have " << it->oid << " expect one of " << p->second << std::endl;
-    ASSERT_TRUE(p->second.count(it->oid));
+    std::cout << "have " << it->get_oid() << " expect one of " << p->second << std::endl;
+    ASSERT_TRUE(p->second.count(it->get_oid()));
     ++p;
   }
 }

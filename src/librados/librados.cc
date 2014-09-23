@@ -28,6 +28,7 @@
 #include "librados/PoolAsyncCompletionImpl.h"
 #include "librados/RadosClient.h"
 #include "librados/RadosXattrIter.h"
+#include "librados/ListObjectImpl.h"
 #include <cls/lock/cls_lock_client.h>
 
 #include <string>
@@ -569,11 +570,11 @@ bool librados::NObjectIterator::operator!=(const librados::NObjectIterator& rhs)
   return !(*this == rhs);
 }
 
-const librados::ListObject_t& librados::NObjectIterator::operator*() const {
+const librados::ListObject& librados::NObjectIterator::operator*() const {
   return cur_obj;
 }
 
-const librados::ListObject_t* librados::NObjectIterator::operator->() const {
+const librados::ListObject* librados::NObjectIterator::operator->() const {
   return &cur_obj;
 }
 
@@ -617,9 +618,11 @@ void librados::NObjectIterator::get_next()
     throw std::runtime_error(oss.str());
   }
 
-  cur_obj.nspace = nspace;
-  cur_obj.oid = entry;
-  cur_obj.locator = key ? key : string();
+  if (cur_obj.impl == NULL)
+    cur_obj.impl = new ListObjectImpl();
+  cur_obj.impl->nspace = nspace;
+  cur_obj.impl->oid = entry;
+  cur_obj.impl->locator = key ? key : string();
 }
 
 uint32_t librados::NObjectIterator::get_pg_hash_position() const
@@ -4385,4 +4388,51 @@ extern "C" int rados_aio_read_op_operate(rados_read_op_t read_op,
 			       c, flags, NULL);
   tracepoint(librados, rados_aio_read_op_operate_exit, retval);
   return retval;
+}
+
+
+///////////////////////////// ListObject //////////////////////////////
+librados::ListObject::ListObject() : impl(NULL)
+{
+}
+
+librados::ListObject::ListObject(librados::ListObjectImpl *i): impl(i)
+{
+}
+
+librados::ListObject::ListObject(const ListObject& rhs)
+{
+  if (impl == NULL)
+    impl = new ListObjectImpl();
+  *impl = *(rhs.impl);
+}
+
+librados::ListObject& librados::ListObject::operator=(const ListObject& rhs)
+{
+  if (impl == NULL)
+    impl = new ListObjectImpl();
+  *impl = *(rhs.impl);
+  return *this;
+}
+
+librados::ListObject::~ListObject()
+{
+  if (impl)
+    delete impl;
+  impl = NULL;
+}
+
+std::string librados::ListObject::get_nspace() const
+{
+  return impl->get_nspace();
+}
+
+std::string librados::ListObject::get_oid() const
+{
+  return impl->get_oid();
+}
+
+std::string librados::ListObject::get_locator() const
+{
+  return impl->get_locator();
 }

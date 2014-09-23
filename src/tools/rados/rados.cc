@@ -395,9 +395,9 @@ static int do_copy_pool(Rados& rados, const char *src_pool, const char *target_p
   librados::NObjectIterator i = src_ctx.nobjects_begin();
   librados::NObjectIterator i_end = src_ctx.nobjects_end();
   for (; i != i_end; ++i) {
-    string nspace = i->nspace;
-    string oid = i->oid;
-    string locator = i->locator;
+    string nspace = i->get_nspace();
+    string oid = i->get_oid();
+    string locator = i->get_locator();
 
     string target_name = (nspace.size() ? nspace + "/" : "") + oid;
     string src_name = target_name;
@@ -923,7 +923,7 @@ protected:
 
     objects->clear();
     for ( ; oi != ei && count < num; ++oi) {
-      objects->push_back(oi->oid);
+      objects->push_back(oi->get_oid());
       ++count;
     }
 
@@ -1148,26 +1148,26 @@ static int do_cache_flush_evict_all(IoCtx& io_ctx, bool blocking)
     librados::NObjectIterator i_end = io_ctx.nobjects_end();
     for (; i != i_end; ++i) {
       int r;
-      cout << i->nspace << "\t" << i->oid << "\t" << i->locator << std::endl;
-      if (i->locator.size()) {
-	io_ctx.locator_set_key(i->locator);
+      cout << i->get_nspace() << "\t" << i->get_oid() << "\t" << i->get_locator() << std::endl;
+      if (i->get_locator().size()) {
+	io_ctx.locator_set_key(i->get_locator());
       } else {
 	io_ctx.locator_set_key(string());
       }
-      io_ctx.set_namespace(i->nspace);
+      io_ctx.set_namespace(i->get_nspace());
       if (blocking)
-	r = do_cache_flush(io_ctx, i->oid);
+	r = do_cache_flush(io_ctx, i->get_oid());
       else
-	r = do_cache_try_flush(io_ctx, i->oid);
+	r = do_cache_try_flush(io_ctx, i->get_oid());
       if (r < 0) {
-	cerr << "failed to flush " << i->nspace << "/" << i->oid << ": "
+	cerr << "failed to flush " << i->get_nspace() << "/" << i->get_oid() << ": "
 	     << cpp_strerror(r) << std::endl;
 	++errors;
 	continue;
       }
-      r = do_cache_evict(io_ctx, i->oid);
+      r = do_cache_evict(io_ctx, i->get_oid());
       if (r < 0) {
-	cerr << "failed to evict " << i->nspace << "/" << i->oid << ": "
+	cerr << "failed to evict " << i->get_nspace() << "/" << i->get_oid() << ": "
 	     << cpp_strerror(r) << std::endl;
 	++errors;
 	continue;
@@ -1581,17 +1581,17 @@ static int rados_tool_common(const std::map < std::string, std::string > &opts,
 	  if (!formatter) {
 	    // Only include namespace in output when wildcard specified
 	    if (wildcard)
-	      *outstream << i->nspace << "\t";
-	    *outstream << i->oid;
-	    if (i->locator.size())
-	      *outstream << "\t" << i->locator;
+	      *outstream << i->get_nspace() << "\t";
+	    *outstream << i->get_oid();
+	    if (i->get_locator().size())
+	      *outstream << "\t" << i->get_locator();
 	    *outstream << std::endl;
 	  } else {
 	    formatter->open_object_section("object");
-	    formatter->dump_string("namespace", i->nspace);
-	    formatter->dump_string("name", i->oid);
-	    if (i->locator.size())
-	      formatter->dump_string("locator", i->locator);
+	    formatter->dump_string("namespace", i->get_nspace());
+	    formatter->dump_string("name", i->get_oid());
+	    if (i->get_locator().size())
+	      formatter->dump_string("locator", i->get_locator());
 	    formatter->close_section(); //object
 	  }
 	}
