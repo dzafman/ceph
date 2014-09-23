@@ -58,9 +58,8 @@ TEST_F(LibRadosListPP, ListObjectsTwicePP) {
   NObjectIterator iter(ioctx.nobjects_begin());
   bool foundit = false;
   while (iter != ioctx.nobjects_end()) {
-    ListObject lo = *iter;
     foundit = true;
-    ASSERT_EQ(lo.get_oid(), "foo");
+    ASSERT_EQ((*iter).get_oid(), "foo");
     ++iter;
   }
   ASSERT_TRUE(foundit);

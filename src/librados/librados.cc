@@ -4402,8 +4402,11 @@ librados::ListObject::ListObject(librados::ListObjectImpl *i): impl(i)
 
 librados::ListObject::ListObject(const ListObject& rhs)
 {
-  if (impl == NULL)
-    impl = new ListObjectImpl();
+  if (rhs.impl == NULL) {
+    impl = NULL;
+    return;
+  }
+  impl = new ListObjectImpl();
   *impl = *(rhs.impl);
 }
 
