@@ -32,10 +32,10 @@ struct ListObjectImpl {
 };
 WRITE_EQ_OPERATORS_3(ListObjectImpl, nspace, oid, locator)
 WRITE_CMP_OPERATORS_3(ListObjectImpl, nspace, oid, locator)
-}
-inline std::ostream& operator<<(std::ostream& out, const struct librados::ListObjectImpl& lop) {
+inline std::ostream& operator<<(std::ostream& out, const struct ListObjectImpl& lop) {
   out << (lop.nspace.size() ? lop.nspace + "/" : "") << lop.oid
       << (lop.locator.size() ? "@" + lop.locator : "");
   return out;
+}
 }
 #endif

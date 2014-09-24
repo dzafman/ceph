@@ -80,9 +80,11 @@ namespace librados
     ListObject(ListObjectImpl *impl);
 
     friend class NObjectIterator;
+    friend std::ostream& operator<<(std::ostream& out, const ListObject& lop);
 
     ListObjectImpl *impl;
   };
+  std::ostream& operator<<(std::ostream& out, const librados::ListObject& lop);
 
   class NObjectIterator : public std::iterator <std::forward_iterator_tag, std::string> {
   public:

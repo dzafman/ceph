@@ -2055,7 +2055,7 @@ bool KvFlatBtreeAsync::is_consistent() {
     for (librados::NObjectIterator oit = io_ctx.nobjects_begin();
         oit != io_ctx.nobjects_end(); ++oit) {
       //if this executes, there are floating objects.
-      cerr << "Not consistent! found floating object " << oit->oid
+      cerr << "Not consistent! found floating object " << oit->get_oid()
              << std::endl;
       ret = false;
     }
@@ -2118,7 +2118,7 @@ bool KvFlatBtreeAsync::is_consistent() {
   //or is listed in the index
   for (librados::NObjectIterator oit = io_ctx.nobjects_begin();
       oit != io_ctx.nobjects_end(); ++oit) {
-    string name = oit->oid;
+    string name = oit->get_oid();
     if (name != index_name && onames.count(name) == 0
 	&& special_names.count(name) == 0) {
       cerr << "Not consistent! found floating object " << name << std::endl;

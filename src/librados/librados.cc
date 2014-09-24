@@ -4439,3 +4439,9 @@ std::string librados::ListObject::get_locator() const
 {
   return impl->get_locator();
 }
+
+std::ostream& librados::operator<<(std::ostream& out, const librados::ListObject& lop)
+{
+  out << *(lop.impl);
+  return out;
+}

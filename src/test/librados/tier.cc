@@ -40,14 +40,14 @@ void flush_evict_all(librados::Rados& cluster, librados::IoCtx& cache_ioctx)
   cache_ioctx.set_namespace(all_nspaces);
   for (NObjectIterator it = cache_ioctx.nobjects_begin();
        it != cache_ioctx.nobjects_end(); ++it) {
-    cache_ioctx.locator_set_key(it->locator);
-    cache_ioctx.set_namespace(it->nspace);
+    cache_ioctx.locator_set_key(it->get_locator());
+    cache_ioctx.set_namespace(it->get_nspace());
     {
       ObjectReadOperation op;
       op.cache_flush();
       librados::AioCompletion *completion = cluster.aio_create_completion();
       cache_ioctx.aio_operate(
-        it->oid, completion, &op,
+        it->get_oid(), completion, &op,
 	librados::OPERATION_IGNORE_OVERLAY, NULL);
       completion->wait_for_safe();
       completion->get_return_value();
@@ -58,7 +58,7 @@ void flush_evict_all(librados::Rados& cluster, librados::IoCtx& cache_ioctx)
       op.cache_evict();
       librados::AioCompletion *completion = cluster.aio_create_completion();
       cache_ioctx.aio_operate(
-        it->oid, completion, &op,
+        it->get_oid(), completion, &op,
 	librados::OPERATION_IGNORE_OVERLAY, NULL);
       completion->wait_for_safe();
       completion->get_return_value();
@@ -281,9 +281,9 @@ TEST_F(LibRadosTwoPoolsPP, Promote) {
   {
     NObjectIterator it = cache_ioctx.nobjects_begin();
     ASSERT_TRUE(it != cache_ioctx.nobjects_end());
-    ASSERT_TRUE(it->oid == string("foo") || it->oid == string("bar"));
+    ASSERT_TRUE(it->get_oid() == string("foo") || it->get_oid() == string("bar"));
     ++it;
-    ASSERT_TRUE(it->oid == string("foo") || it->oid == string("bar"));
+    ASSERT_TRUE(it->get_oid() == string("foo") || it->get_oid() == string("bar"));
     ++it;
     ASSERT_TRUE(it == cache_ioctx.nobjects_end());
   }
@@ -629,9 +629,9 @@ TEST_F(LibRadosTwoPoolsPP, Whiteout) {
   {
     NObjectIterator it = cache_ioctx.nobjects_begin();
     ASSERT_TRUE(it != cache_ioctx.nobjects_end());
-    ASSERT_TRUE(it->oid == string("foo") || it->oid == string("bar"));
+    ASSERT_TRUE(it->get_oid() == string("foo") || it->get_oid() == string("bar"));
     ++it;
-    ASSERT_TRUE(it->oid == string("foo") || it->oid == string("bar"));
+    ASSERT_TRUE(it->get_oid() == string("foo") || it->get_oid() == string("bar"));
     ++it;
     ASSERT_TRUE(it == cache_ioctx.nobjects_end());
   }
@@ -700,9 +700,9 @@ TEST_F(LibRadosTwoPoolsPP, Evict) {
   {
     NObjectIterator it = cache_ioctx.nobjects_begin();
     ASSERT_TRUE(it != cache_ioctx.nobjects_end());
-    ASSERT_TRUE(it->oid == string("foo") || it->oid == string("bar"));
+    ASSERT_TRUE(it->get_oid() == string("foo") || it->get_oid() == string("bar"));
     ++it;
-    ASSERT_TRUE(it->oid == string("foo") || it->oid == string("bar"));
+    ASSERT_TRUE(it->get_oid() == string("foo") || it->get_oid() == string("bar"));
     ++it;
     ASSERT_TRUE(it == cache_ioctx.nobjects_end());
   }
@@ -1014,7 +1014,7 @@ TEST_F(LibRadosTwoPoolsPP, TryFlush) {
   {
     NObjectIterator it = cache_ioctx.nobjects_begin();
     ASSERT_TRUE(it != cache_ioctx.nobjects_end());
-    ASSERT_TRUE(it->oid == string("foo"));
+    ASSERT_TRUE(it->get_oid() == string("foo"));
     ++it;
     ASSERT_TRUE(it == cache_ioctx.nobjects_end());
   }
@@ -1065,7 +1065,7 @@ TEST_F(LibRadosTwoPoolsPP, TryFlush) {
   {
     NObjectIterator it = ioctx.nobjects_begin();
     ASSERT_TRUE(it != ioctx.nobjects_end());
-    ASSERT_TRUE(it->oid == string("foo"));
+    ASSERT_TRUE(it->get_oid() == string("foo"));
     ++it;
     ASSERT_TRUE(it == ioctx.nobjects_end());
   }
@@ -1124,7 +1124,7 @@ TEST_F(LibRadosTwoPoolsPP, Flush) {
   {
     NObjectIterator it = cache_ioctx.nobjects_begin();
     ASSERT_TRUE(it != cache_ioctx.nobjects_end());
-    ASSERT_TRUE(it->oid == string("foo"));
+    ASSERT_TRUE(it->get_oid() == string("foo"));
     ++it;
     ASSERT_TRUE(it == cache_ioctx.nobjects_end());
   }
@@ -1175,7 +1175,7 @@ TEST_F(LibRadosTwoPoolsPP, Flush) {
   {
     NObjectIterator it = ioctx.nobjects_begin();
     ASSERT_TRUE(it != ioctx.nobjects_end());
-    ASSERT_TRUE(it->oid == string("foo"));
+    ASSERT_TRUE(it->get_oid() == string("foo"));
     ++it;
     ASSERT_TRUE(it == ioctx.nobjects_end());
   }
@@ -1309,7 +1309,7 @@ TEST_F(LibRadosTwoPoolsPP, FlushSnap) {
   {
     NObjectIterator it = cache_ioctx.nobjects_begin();
     ASSERT_TRUE(it != cache_ioctx.nobjects_end());
-    ASSERT_TRUE(it->oid == string("foo"));
+    ASSERT_TRUE(it->get_oid() == string("foo"));
     ++it;
     ASSERT_TRUE(it == cache_ioctx.nobjects_end());
   }
@@ -2171,7 +2171,7 @@ TEST_F(LibRadosTwoPoolsPP, PromoteOn2ndRead) {
 
     NObjectIterator it = cache_ioctx.nobjects_begin();
     if (it != cache_ioctx.nobjects_end()) {
-      ASSERT_TRUE(it->oid == string("foo"));
+      ASSERT_TRUE(it->get_oid() == string("foo"));
       ++it;
       ASSERT_TRUE(it == cache_ioctx.nobjects_end());
       break;
@@ -2409,9 +2409,9 @@ TEST_F(LibRadosTwoPoolsECPP, Promote) {
   {
     NObjectIterator it = cache_ioctx.nobjects_begin();
     ASSERT_TRUE(it != cache_ioctx.nobjects_end());
-    ASSERT_TRUE(it->oid == string("foo") || it->oid == string("bar"));
+    ASSERT_TRUE(it->get_oid() == string("foo") || it->get_oid() == string("bar"));
     ++it;
-    ASSERT_TRUE(it->oid == string("foo") || it->oid == string("bar"));
+    ASSERT_TRUE(it->get_oid() == string("foo") || it->get_oid() == string("bar"));
     ++it;
     ASSERT_TRUE(it == cache_ioctx.nobjects_end());
   }
@@ -2680,9 +2680,9 @@ TEST_F(LibRadosTwoPoolsECPP, Whiteout) {
   {
     NObjectIterator it = cache_ioctx.nobjects_begin();
     ASSERT_TRUE(it != cache_ioctx.nobjects_end());
-    ASSERT_TRUE(it->oid == string("foo") || it->oid == string("bar"));
+    ASSERT_TRUE(it->get_oid() == string("foo") || it->get_oid() == string("bar"));
     ++it;
-    ASSERT_TRUE(it->oid == string("foo") || it->oid == string("bar"));
+    ASSERT_TRUE(it->get_oid() == string("foo") || it->get_oid() == string("bar"));
     ++it;
     ASSERT_TRUE(it == cache_ioctx.nobjects_end());
   }
@@ -2751,9 +2751,9 @@ TEST_F(LibRadosTwoPoolsECPP, Evict) {
   {
     NObjectIterator it = cache_ioctx.nobjects_begin();
     ASSERT_TRUE(it != cache_ioctx.nobjects_end());
-    ASSERT_TRUE(it->oid == string("foo") || it->oid == string("bar"));
+    ASSERT_TRUE(it->get_oid() == string("foo") || it->get_oid() == string("bar"));
     ++it;
-    ASSERT_TRUE(it->oid == string("foo") || it->oid == string("bar"));
+    ASSERT_TRUE(it->get_oid() == string("foo") || it->get_oid() == string("bar"));
     ++it;
     ASSERT_TRUE(it == cache_ioctx.nobjects_end());
   }
@@ -3065,7 +3065,7 @@ TEST_F(LibRadosTwoPoolsECPP, TryFlush) {
   {
     NObjectIterator it = cache_ioctx.nobjects_begin();
     ASSERT_TRUE(it != cache_ioctx.nobjects_end());
-    ASSERT_TRUE(it->oid == string("foo"));
+    ASSERT_TRUE(it->get_oid() == string("foo"));
     ++it;
     ASSERT_TRUE(it == cache_ioctx.nobjects_end());
   }
@@ -3116,7 +3116,7 @@ TEST_F(LibRadosTwoPoolsECPP, TryFlush) {
   {
     NObjectIterator it = ioctx.nobjects_begin();
     ASSERT_TRUE(it != ioctx.nobjects_end());
-    ASSERT_TRUE(it->oid == string("foo"));
+    ASSERT_TRUE(it->get_oid() == string("foo"));
     ++it;
     ASSERT_TRUE(it == ioctx.nobjects_end());
   }
@@ -3175,7 +3175,7 @@ TEST_F(LibRadosTwoPoolsECPP, Flush) {
   {
     NObjectIterator it = cache_ioctx.nobjects_begin();
     ASSERT_TRUE(it != cache_ioctx.nobjects_end());
-    ASSERT_TRUE(it->oid == string("foo"));
+    ASSERT_TRUE(it->get_oid() == string("foo"));
     ++it;
     ASSERT_TRUE(it == cache_ioctx.nobjects_end());
   }
@@ -3226,7 +3226,7 @@ TEST_F(LibRadosTwoPoolsECPP, Flush) {
   {
     NObjectIterator it = ioctx.nobjects_begin();
     ASSERT_TRUE(it != ioctx.nobjects_end());
-    ASSERT_TRUE(it->oid == string("foo"));
+    ASSERT_TRUE(it->get_oid() == string("foo"));
     ++it;
     ASSERT_TRUE(it == ioctx.nobjects_end());
   }
@@ -3360,7 +3360,7 @@ TEST_F(LibRadosTwoPoolsECPP, FlushSnap) {
   {
     NObjectIterator it = cache_ioctx.nobjects_begin();
     ASSERT_TRUE(it != cache_ioctx.nobjects_end());
-    ASSERT_TRUE(it->oid == string("foo"));
+    ASSERT_TRUE(it->get_oid() == string("foo"));
     ++it;
     ASSERT_TRUE(it == cache_ioctx.nobjects_end());
   }
@@ -4145,7 +4145,7 @@ TEST_F(LibRadosTwoPoolsECPP, PromoteOn2ndRead) {
 
     NObjectIterator it = cache_ioctx.nobjects_begin();
     if (it != cache_ioctx.nobjects_end()) {
-      ASSERT_TRUE(it->oid == string("foo"));
+      ASSERT_TRUE(it->get_oid() == string("foo"));
       ++it;
       ASSERT_TRUE(it == cache_ioctx.nobjects_end());
       break;
