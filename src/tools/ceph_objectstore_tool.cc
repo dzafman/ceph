@@ -50,6 +50,7 @@ enum {
     TYPE_OMAP_HDR,
     TYPE_OMAP,
     TYPE_PG_METADATA,
+    TYPE_OSDMAP,
     END_OF_TYPES,	//Keep at the end
 };
 
@@ -99,7 +100,8 @@ struct super_header {
   static const uint32_t super_magic = (shortmagic << 16) | shortmagic;
   // ver = 1, Initial version
   // ver = 2, Add OSDSuperblock to pg_begin
-  static const uint32_t super_ver = 2;
+  // ver = 3, Add TYPE_OSDMAP sections
+  static const uint32_t super_ver = 3;
   static const uint32_t FIXED_LENGTH = 16;
   uint32_t magic;
   uint32_t version;
@@ -353,6 +355,23 @@ struct metadata_section {
     } else {
       cout << "NOTICE: Older export without past_intervals" << std::endl;
     }
+    DECODE_FINISH(bl);
+  }
+};
+
+struct osdmap_section {
+  OSDMap osdmap;
+
+  osdmap_section() { }
+
+  void encode(bufferlist& bl, uint64_t features) const {
+    ENCODE_START(1, 1, bl);
+    osdmap.encode(bl, features);
+    ENCODE_FINISH(bl);
+  }
+  void decode(bufferlist::iterator& bl) {
+    DECODE_START(1, bl);
+    osdmap.decode(bl);
     DECODE_FINISH(bl);
   }
 };
@@ -795,6 +814,24 @@ int export_files(ObjectStore *store, coll_t coll)
   return 0;
 }
 
+int export_osdmaps(ObjectStore *store, epoch_t first, epoch_t last, uint64_t features)
+{
+  for (epoch_t e = first ; e < last ; ++e) {
+    bufferlist bl;
+    bool found = store->read(
+      META_COLL, OSD::get_osdmap_pobject_name(e), 0, 0, bl) >= 0;
+    if (!found)
+      continue;
+    osdmap_section oms;
+    oms.osdmap.decode(bl);
+    cout << oms.osdmap << std::endl;
+    int ret = write_section(TYPE_OSDMAP, oms, file_fd, features);
+    if (ret)
+      return ret;
+  }
+  return 0;
+}
+
 //Write super_header with its fixed 16 byte length
 void write_super()
 {
@@ -820,7 +857,7 @@ void write_super()
 
 int do_export(ObjectStore *fs, coll_t coll, spg_t pgid, pg_info_t &info,
     epoch_t map_epoch, __u8 struct_ver, const OSDSuperblock& superblock,
-    map<epoch_t,pg_interval_t> &past_intervals)
+    map<epoch_t,pg_interval_t> &past_intervals, uint64_t features)
 {
   PGLog::IndexedLog log;
   pg_missing_t missing;
@@ -848,6 +885,23 @@ int do_export(ObjectStore *fs, coll_t coll, spg_t pgid, pg_info_t &info,
   ret = write_section(TYPE_PG_METADATA, ms, file_fd);
   if (ret)
     return ret;
+
+#if 0
+  cout << "epoch_created " << info.history.epoch_created << std::endl;
+  cout << "last_epoch_started " << info.history.last_epoch_started << std::endl;
+  cout << "last_epoch_clean " << info.history.last_epoch_clean << std::endl;
+  cout << "last_epoch_split " << info.history.last_epoch_split << std::endl;
+  cout << "same_up_since " << info.history.same_up_since << std::endl;
+  cout << "same_interval_since " << info.history.same_interval_since << std::endl;
+  cout << "same_primary_since " << info.history.same_primary_since << std::endl;
+#endif
+  cout << "maps " << superblock.oldest_map << " - " << superblock.newest_map << std::endl;
+
+  ret = export_osdmaps(fs, superblock.oldest_map, superblock.newest_map, features);
+  if (ret) {
+    cerr << "export_osdmaps error " << ret << std::endl;
+    return ret;
+  }
 
   ret = write_simple(TYPE_PG_END, file_fd);
   if (ret)
@@ -1242,6 +1296,16 @@ int get_pg_metadata(ObjectStore *store, coll_t coll, bufferlist &bl)
   return 0;
 }
 
+int get_osdmap(ObjectStore *store, bufferlist &bl)
+{
+  bufferlist::iterator ebliter = bl.begin();
+  osdmap_section oms;
+  oms.decode(ebliter);
+
+  cout << oms.osdmap << std::endl;
+  return 0;
+}
+
 int do_import_rados(string pool)
 {
   bufferlist ebl;
@@ -1326,6 +1390,7 @@ int do_import_rados(string pool)
 
   bool done = false;
   bool found_metadata = false;
+  bool found_osdmap = false;
   while(!done) {
     ret = read_section(file_fd, &type, &ebl);
     if (ret)
@@ -1345,6 +1410,11 @@ int do_import_rados(string pool)
       if (debug)
         cout << "Don't care about the old metadata" << std::endl;
       found_metadata = true;
+      break;
+    case TYPE_OSDMAP:
+      if (debug && !found_osdmap)
+        cout << "Don't care about osdmaps" << std::endl;
+      found_osdmap = true;
       break;
     case TYPE_PG_END:
       done = true;
@@ -1436,6 +1506,7 @@ int do_import(ObjectStore *store, OSDSuperblock& sb)
 
   bool done = false;
   bool found_metadata = false;
+  bool found_osdmap = false;
   while(!done) {
     ret = read_section(file_fd, &type, &ebl);
     if (ret)
@@ -1456,6 +1527,11 @@ int do_import(ObjectStore *store, OSDSuperblock& sb)
       if (ret) return ret;
       found_metadata = true;
       break;
+    case TYPE_OSDMAP:
+      ret = get_osdmap(store, ebl);
+      if (ret) return ret;
+      found_osdmap = true;
+      break;
     case TYPE_PG_END:
       done = true;
       break;
@@ -1466,6 +1542,11 @@ int do_import(ObjectStore *store, OSDSuperblock& sb)
 
   if (!found_metadata) {
     cerr << "Missing metadata section" << std::endl;
+    return EFAULT;
+  }
+
+  if (!found_osdmap) {
+    cerr << "No osdmap sections" << std::endl;
     return EFAULT;
   }
 
@@ -2124,6 +2205,10 @@ int main(int argc, char **argv)
   p = bl.begin();
   ::decode(superblock, p);
 
+  if (debug) {
+    cerr << "Cluster fsid=" << superblock.cluster_fsid << std::endl;
+  }
+
 #ifdef INTERNAL_TEST2
   fs->set_allow_sharded_objects();
   assert(fs->get_allow_sharded_objects());
@@ -2531,7 +2616,7 @@ int main(int argc, char **argv)
       cerr << "struct_v " << (int)struct_ver << std::endl;
 
     if (op == "export") {
-      ret = do_export(fs, coll, pgid, info, map_epoch, struct_ver, superblock, past_intervals);
+      ret = do_export(fs, coll, pgid, info, map_epoch, struct_ver, superblock, past_intervals, CEPH_FEATURES_SUPPORTED_DEFAULT);
       if (ret == 0 && file_fd != STDOUT_FILENO)
         cout << "Export successful" << std::endl;
     } else if (op == "info") {
