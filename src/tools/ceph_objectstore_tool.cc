@@ -800,6 +800,10 @@ int do_export(ObjectStore *fs, coll_t coll, spg_t pgid, pg_info_t &info,
   write_super();
 
   pg_begin pgb(pgid, superblock);
+  // Special case: If replicated pg don't require the importing OSD to have shard feature
+  if (pgid.is_no_shard()) {
+    pgb.superblock.compat_features.incompat.remove(CEPH_OSD_FEATURE_INCOMPAT_SHARDS);
+  }
   ret = write_section(TYPE_PG_BEGIN, pgb, file_fd);
   if (ret)
     return ret;
