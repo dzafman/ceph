@@ -56,6 +56,7 @@ overwrite_conf=1
 cephx=1 #turn cephx on by default
 cache=""
 memstore=0
+keyvaluestore=0
 journal=1
 
 MON_ADDR=""
@@ -174,6 +175,9 @@ case $1 in
     --memstore )
 	    memstore=1
 	    ;;
+    --keyvaluestore )
+	    keyvaluestore=1
+	    ;;
     --hitset )
 	    hitset="$hitset $2 $3"
 	    shift
@@ -270,6 +274,11 @@ fi
 if [ "$memstore" -eq 1 ]; then
     COSDMEMSTORE='
 	osd objectstore = memstore'
+fi
+if [ "$keyvaluestore" -eq 1 ]; then
+    COSDMEMSTORE='
+	enable experimental unrecoverable data corrupting features = keyvaluestore
+	osd objectstore = keyvaluestore'
 fi
 
 # lockdep everywhere?
