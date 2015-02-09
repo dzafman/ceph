@@ -614,10 +614,17 @@ static int get_fd_data(int fd, bufferlist &bl)
   return 0;
 }
 
+void myexit(int ret)
+{
+  if (g_ceph_context)
+    g_ceph_context->put();
+  exit(ret);
+}
+
 static void invalid_filestore_path(string &path)
 {
   cerr << "Invalid filestore path specified: " << path << "\n";
-  exit(1);
+  myexit(1);
 }
 
 int get_log(ObjectStore *fs, __u8 struct_ver,
@@ -1628,7 +1635,7 @@ int do_import_rados(string pool)
 
   if (!pgid.is_no_shard()) {
     cerr << "Importing Erasure Coded shard is not supported" << std::endl;
-    exit(1);
+    myexit(1);
   }
 
   if (debug) {
@@ -2260,7 +2267,7 @@ void usage(po::options_description &desc)
     cerr << std::endl;
     cerr << "The optional [file] argument will read stdin or write stdout" << std::endl;
     cerr << "if not specified or if '-' specified." << std::endl;
-    exit(1);
+    myexit(1);
 }
 
 bool ends_with(const string& check, const string& ending)
@@ -2350,7 +2357,7 @@ int main(int argc, char **argv)
   if (object == "import-rados") {
     if (vm.count("objcmd") == 0) {
       cerr << "ceph-objectstore-tool import-rados <pool> [file]" << std::endl;
-      exit(1);
+      myexit(1);
     }
 
     string pool = objcmd;
@@ -2365,7 +2372,7 @@ int main(int argc, char **argv)
     if (arg1 == "-") {
       if (isatty(STDIN_FILENO)) {
         cerr << "stdin is a tty and no file specified" << std::endl;
-        exit(1);
+        myexit(1);
       }
       file_fd = STDIN_FILENO;
     } else {
@@ -2382,7 +2389,7 @@ int main(int argc, char **argv)
     int ret = do_import_rados(pool);
     if (ret == 0)
       cout << "Import successful" << std::endl;
-    return ret != 0;
+    myexit(ret != 0);
   }
 
   if (!vm.count("data-path")) {
@@ -2415,7 +2422,7 @@ int main(int argc, char **argv)
     if (!vm.count("file") || file == "-") {
       if (outistty) {
         cerr << "stdout is a tty and no --file filename specified" << std::endl;
-        exit(1);
+        myexit(1);
       }
       file_fd = STDOUT_FILENO;
     } else {
@@ -2425,7 +2432,7 @@ int main(int argc, char **argv)
     if (!vm.count("file") || file == "-") {
       if (isatty(STDIN_FILENO)) {
         cerr << "stdin is a tty and no --file filename specified" << std::endl;
-        exit(1);
+        myexit(1);
       }
       file_fd = STDIN_FILENO;
     } else {
@@ -2465,7 +2472,7 @@ int main(int argc, char **argv)
   struct stat st;
   if (::stat(dpath.c_str(), &st) == -1) {
      perror("data-path");
-     exit(1);
+     myexit(1);
   }
   //Verify data data-path really is a filestore
   if (type == "filestore") {
@@ -2492,12 +2499,12 @@ int main(int argc, char **argv)
 
   if (op == "import" && pgidstr.length()) {
     cerr << "--pgid option invalid with import" << std::endl;
-    return 1;
+    myexit(1);
   }
 
   if (pgidstr.length() && !pgid.parse(pgidstr.c_str())) {
     cerr << "Invalid pgid '" << pgidstr << "' specified" << std::endl;
-    return 1;
+    myexit(1);
   }
 
   ObjectStore *fs = ObjectStore::create(g_ceph_context, type, dpath, jpath, flags);
@@ -2508,7 +2515,7 @@ int main(int argc, char **argv)
            << "enable_experimental_unrecoverable_data_corrupting_features"
            << std::endl;
     }
-    exit(1);
+    myexit(1);
   }
 
   int r = fs->mount();
@@ -2518,7 +2525,7 @@ int main(int argc, char **argv)
     } else {
       cerr << "Mount failed with '" << cpp_strerror(-r) << "'" << std::endl;
     }
-    return 1;
+    myexit(1);
   }
 
   bool fs_sharded_objects = fs->get_allow_sharded_objects();
@@ -3128,8 +3135,8 @@ int main(int argc, char **argv)
 out:
   if (fs->umount() < 0) {
     cerr << "umount failed" << std::endl;
-    return 1;
+    if (ret == 0) ret = 1;
   }
 
-  return ret;
+  myexit(ret);
 }
