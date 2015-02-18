@@ -296,6 +296,7 @@ private:
   int _open_block_device();
   void _check_disk_write_cache() const;
   int _open_file(int64_t oldsize, blksize_t blksize, bool create);
+  int _dump(ostream& out, bool simple);
   void print_header();
   int read_header();
   bufferptr prepare_header();
@@ -397,6 +398,7 @@ private:
   int peek_fsid(uuid_d& fsid);
 
   int dump(ostream& out);
+  int simple_dump(ostream& out);
 
   void flush();
 
