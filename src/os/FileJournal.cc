@@ -575,15 +575,19 @@ void FileJournal::close()
 int FileJournal::dump(ostream& out)
 {
   int err = 0;
+  bool opened = false;
 
   dout(10) << "dump" << dendl;
-  err = _open(false, false);
-  if (err)
-    return err;
+  if (fd == -1) {
+    opened = true;
+    err = _open(false, false);
+    if (err)
+      return err;
 
-  err = read_header();
-  if (err < 0)
-    return err;
+    err = read_header();
+    if (err < 0)
+      return err;
+  }
 
   read_pos = header.start;
 
@@ -635,6 +639,9 @@ int FileJournal::dump(ostream& out)
 
   f.close_section();
   dout(10) << "dump finish" << dendl;
+
+  if (opened)
+    close();
   return 0;
 }
 
@@ -652,6 +659,9 @@ void FileJournal::start_writer()
 
 void FileJournal::stop_writer()
 {
+  // Do nothing if writer already stopped or never started
+  if (write_stop == false) 
+  {
   {
     Mutex::Locker l(write_lock);
     Mutex::Locker p(writeq_lock);
@@ -662,11 +672,12 @@ void FileJournal::stop_writer()
     commit_cond.Signal();
   }
   write_thread.join();
+  }
 
 #ifdef HAVE_LIBAIO
   // stop aio completeion thread *after* writer thread has stopped
   // and has submitted all of its io
-  if (aio) {
+  if (aio && aio_stop == false) {
     aio_lock.Lock();
     aio_stop = true;
     aio_cond.Signal();
