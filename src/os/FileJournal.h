@@ -382,8 +382,8 @@ private:
     throttle_ops(g_ceph_context, "filestore_ops", g_conf->journal_queue_max_ops),
     throttle_bytes(g_ceph_context, "filestore_bytes", g_conf->journal_queue_max_bytes),
     write_lock("FileJournal::write_lock", false, true, false, g_ceph_context),
-    write_stop(false),
-    aio_stop(false),
+    write_stop(true),
+    aio_stop(true),
     write_thread(this),
     write_finish_thread(this) { }
   ~FileJournal() {
