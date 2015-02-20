@@ -134,7 +134,7 @@ public:
       start = block_size;
     }
 
-    uint64_t get_fsid64() {
+    uint64_t get_fsid64() const {
       return *(uint64_t*)&fsid.uuid[0];
     }
 
@@ -326,7 +326,7 @@ private:
     int64_t len,      ///< [in] length to read
     bufferlist* bl,   ///< [out] result
     off64_t *out_pos  ///< [out] next position to read, will be wrapped
-    );
+    ) const;
 
   void do_discard(int64_t offset, int64_t end);
 
@@ -350,7 +350,7 @@ private:
     }
   } write_finish_thread;
 
-  off64_t get_top() {
+  off64_t get_top() const {
     return ROUND_UP_TO(sizeof(header), block_size);
   }
 
@@ -448,7 +448,7 @@ private:
     uint64_t *seq,        ///< [out] seq of successful read
     ostream *ss,          ///< [out] error output
     entry_header_t *h = 0 ///< [out] header
-    ); ///< @return result code
+    ) const; ///< @return result code
 
   bool read_entry(
     bufferlist &bl,

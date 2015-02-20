@@ -1740,7 +1740,7 @@ void FileJournal::wrap_read_bl(
   int64_t olen,
   bufferlist* bl,
   off64_t *out_pos
-  )
+  ) const
 {
   while (olen > 0) {
     while (pos >= header.max_size)
@@ -1833,7 +1833,7 @@ FileJournal::read_entry_result FileJournal::do_read_entry(
   bufferlist *bl,
   uint64_t *seq,
   ostream *ss,
-  entry_header_t *_h)
+  entry_header_t *_h) const
 {
   off64_t cur_pos = init_pos;
   bufferlist _bl;
