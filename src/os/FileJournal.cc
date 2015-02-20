@@ -599,7 +599,7 @@ int FileJournal::_dump(ostream& out, bool simple)
       return err;
   }
 
-  read_pos = header.start;
+  off64_t next_pos = header.start;
 
   JSONFormatter f(true);
   f.open_object_section("journal");
@@ -618,12 +618,32 @@ int FileJournal::_dump(ostream& out, bool simple)
   f.close_section();
 
   f.open_array_section("entries");
-  uint64_t seq = 0;
+  uint64_t seq = header.start_seq;
   while (1) {
     bufferlist bl;
-    uint64_t pos = read_pos;
-    if (!read_entry(bl, seq)) {
-      dout(3) << "journal_replay: end of journal, done." << dendl;
+    off64_t pos = next_pos;
+
+    if (!pos) {
+      dout(2) << "_dump -- not readable" << dendl;
+      return false;
+    }
+    stringstream ss;
+    read_entry_result result = do_read_entry(
+      pos,
+      &next_pos,
+      &bl,
+      &seq,
+      &ss);
+    if (result != SUCCESS) {
+      if (seq < header.committed_up_to) {
+        dout(2) << "Unable to read past sequence " << seq
+	    << " but header indicates the journal has committed up through "
+	    << header.committed_up_to << ", journal is corrupt" << dendl;
+      }
+      dout(25) << ss.str() << dendl;
+      dout(25) << "No further valid entries found, journal is most likely valid"
+	  << dendl;
+      err = EINVAL;
       break;
     }
 
@@ -657,7 +677,7 @@ int FileJournal::_dump(ostream& out, bool simple)
 
   if (opened)
     close();
-  return 0;
+  return err;
 }
 
 
