@@ -1796,6 +1796,7 @@ bool FileJournal::read_entry(
     &seq,
     &ss);
   if (result == SUCCESS) {
+    journalq.push_back( pair<uint64_t,off64_t>(seq, pos));
     if (next_seq > seq) {
       return false;
     } else {
@@ -1903,11 +1904,6 @@ FileJournal::read_entry_result FileJournal::do_read_entry(
   if (seq)
     *seq = h->seq;
 
-  // works around an apparent GCC 4.8(?) compiler bug about unaligned
-  // bind by reference to (packed) h->seq
-  journalq.push_back(
-    pair<uint64_t,off64_t>(static_cast<uint64_t>(h->seq),
-			   static_cast<off64_t>(init_pos)));
 
   if (next_pos)
     *next_pos = cur_pos;
