@@ -599,7 +599,7 @@ int FileJournal::_dump(ostream& out, bool simple)
       return err;
   }
 
-  read_pos = header.start;
+  off64_t next_pos = header.start;
 
   JSONFormatter f(true);
 
@@ -618,12 +618,31 @@ int FileJournal::_dump(ostream& out, bool simple)
   f.flush(out);
 
   f.open_array_section("journal");
-  uint64_t seq = 0;
+  uint64_t seq = header.start_seq;
   while (1) {
     bufferlist bl;
-    uint64_t pos = read_pos;
-    if (!read_entry(bl, seq)) {
-      dout(3) << "journal_replay: end of journal, done." << dendl;
+    off64_t pos = next_pos;
+
+    if (!pos) {
+      dout(2) << "_dump -- not readable" << dendl;
+      return false;
+    }
+    stringstream ss;
+    read_entry_result result = do_read_entry(
+      pos,
+      &next_pos,
+      &bl,
+      &seq,
+      &ss);
+    if (result != SUCCESS) {
+      if (seq < header.committed_up_to) {
+        out << "Unable to read past sequence " << seq
+	    << " but header indicates the journal has committed up through "
+	    << header.committed_up_to << ", journal is corrupt" << std::endl;
+      }
+      dout(25) << ss.str() << dendl;
+      dout(25) << "No further valid entries found, journal is most likely valid"
+	  << dendl;
       break;
     }
 
@@ -1808,7 +1827,7 @@ bool FileJournal::read_entry(
     }
   }
 
-  if (seq && seq < header.committed_up_to) {
+  if (seq < header.committed_up_to) {
     derr << "Unable to read past sequence " << seq
 	 << " but header indicates the journal has committed up through "
 	 << header.committed_up_to << ", journal is corrupt" << dendl;
