@@ -667,7 +667,6 @@ int FileJournal::_dump(ostream& out, bool simple)
       f.close_section();
     }
     f.close_section();
-    f.flush(out);
   }
 
   f.close_section();
