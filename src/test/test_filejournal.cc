@@ -99,12 +99,12 @@ int main(int argc, char **argv) {
   directio = false;
   aio = false;
   int r = RUN_ALL_TESTS();
-  if (r >= 0) {
+  if (r == 0) {
     cout << "DIRECTIO ON  AIO OFF" << std::endl;
     directio = true;
     r = RUN_ALL_TESTS();
 
-    if (r >= 0) {
+    if (r == 0) {
       cout << "DIRECTIO ON  AIO ON" << std::endl;
       aio = true;
       r = RUN_ALL_TESTS();
