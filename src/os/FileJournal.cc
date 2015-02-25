@@ -339,7 +339,7 @@ int FileJournal::check()
   if (ret)
     goto done;
 
-  ret = read_header();
+  ret = read_header(&header);
   if (ret < 0)
     goto done;
 
@@ -386,7 +386,7 @@ int FileJournal::create()
   header.start = get_top();
   header.start_seq = 0;
 
-  print_header();
+  print_header(header);
 
   // static zeroed buffer for alignment padding
   delete [] zero_buf;
@@ -448,7 +448,7 @@ int FileJournal::peek_fsid(uuid_d& fsid)
   int r = _open(false, false);
   if (r)
     return r;
-  r = read_header();
+  r = read_header(&header);
   if (r < 0)
     return r;
   fsid = header.fsid;
@@ -470,7 +470,7 @@ int FileJournal::open(uint64_t fs_op_seq)
   write_pos = get_top();
 
   // read header?
-  err = read_header();
+  err = read_header(&header);
   if (err < 0)
     return err;
 
@@ -556,6 +556,11 @@ int FileJournal::open(uint64_t fs_op_seq)
   return 0;
 }
 
+void FileJournal::_close(int fd) const
+{
+  VOID_TEMP_FAILURE_RETRY(::close(fd));
+}
+
 void FileJournal::close()
 {
   dout(1) << "close " << fn << dendl;
@@ -567,25 +572,27 @@ void FileJournal::close()
   assert(writeq_empty());
   assert(!must_write_header);
   assert(fd >= 0);
-  VOID_TEMP_FAILURE_RETRY(::close(fd));
+  _close(fd);
   fd = -1;
 }
 
 
-int FileJournal::dump(ostream& out)
+int FileJournal::dump(ostream& out) const
 {
   return _dump(out, false);
 }
 
-int FileJournal::simple_dump(ostream& out)
+int FileJournal::simple_dump(ostream& out) const
 {
   return _dump(out, true);
 }
 
-int FileJournal::_dump(ostream& out, bool simple)
+int FileJournal::_dump(ostream& out, bool simple) const
 {
   int err = 0;
   bool opened = false;
+  header_t header;	// Since const function need local header
+  int myfd = fd;
 
   dout(10) << "dump" << dendl;
   if (fd == -1) {
@@ -593,8 +600,9 @@ int FileJournal::_dump(ostream& out, bool simple)
     err = _open(false, false);
     if (err)
       return err;
+    myfd = fd;
 
-    err = read_header();
+    err = read_header(&header);
     if (err < 0)
       return err;
   }
@@ -676,7 +684,7 @@ int FileJournal::_dump(ostream& out, bool simple)
   dout(10) << "dump finish" << dendl;
 
   if (opened)
-    close();
+    _close(myfd);
   return err;
 }
 
@@ -725,7 +733,7 @@ void FileJournal::stop_writer()
 
 
 
-void FileJournal::print_header()
+void FileJournal::print_header(const header_t &header) const
 {
   dout(10) << "header: block_size " << header.block_size
 	   << " alignment " << header.alignment
@@ -735,7 +743,7 @@ void FileJournal::print_header()
   dout(10) << " write_pos " << write_pos << dendl;
 }
 
-int FileJournal::read_header()
+int FileJournal::read_header(header_t *hdr) const
 {
   dout(10) << "read_header" << dendl;
   bufferlist bl;
@@ -754,7 +762,7 @@ int FileJournal::read_header()
 
   try {
     bufferlist::iterator p = bl.begin();
-    ::decode(header, p);
+    ::decode(*hdr, p);
   }
   catch (buffer::error& e) {
     derr << "read_header error decoding journal header" << dendl;
@@ -769,12 +777,12 @@ int FileJournal::read_header()
    * remove this or else this (eventually old) code will clobber newer
    * code's flags.
    */
-  if (header.flags > 3) {
+  if (hdr->flags > 3) {
     derr << "read_header appears to have gibberish flags; assuming 0" << dendl;
-    header.flags = 0;
+    hdr->flags = 0;
   }
 
-  print_header();
+  print_header(*hdr);
 
   return 0;
 }
@@ -869,7 +877,7 @@ int FileJournal::prepare_multi_write(bufferlist& bl, uint64_t& orig_ops, uint64_
 	  put_throttle(1, peek_write().bl.length());
 	  pop_write();
 	}  
-	print_header();
+	print_header(header);
       }
 
       return -ENOSPC;  // hrm, full on first op
@@ -1276,7 +1284,7 @@ void FileJournal::write_thread_entry()
 	  put_throttle(1, peek_write().bl.length());
 	  pop_write();
 	}  
-	print_header();
+	print_header(header);
 	r = 0;
       } else {
 	dout(20) << "write_thread_entry full, going to sleep (waiting for commit)" << dendl;
@@ -1701,7 +1709,7 @@ void FileJournal::committed_thru(uint64_t seq)
   }
 
   must_write_header = true;
-  print_header();
+  print_header(header);
 
   // committed but unjournaled items
   while (!writeq_empty() && peek_write().seq <= seq) {
