@@ -45,17 +45,6 @@ int FileJournal::_open(bool forwrite, bool create)
 {
   int flags, ret;
 
-  if (aio && !directio) {
-    derr << "FileJournal::_open: aio not supported without directio; disabling aio" << dendl;
-    aio = false;
-  }
-#ifndef HAVE_LIBAIO
-  if (aio) {
-    derr << "FileJournal::_open: libaio not compiled in; disabling aio" << dendl;
-    aio = false;
-  }
-#endif
-
   if (forwrite) {
     flags = O_RDWR;
     if (directio)

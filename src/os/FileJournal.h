@@ -389,7 +389,19 @@ private:
     write_stop(true),
     aio_stop(true),
     write_thread(this),
-    write_finish_thread(this) { }
+    write_finish_thread(this) { 
+
+    if (aio && !directio) {
+      derr << "FileJournal::_open_any: aio not supported without directio; disabling aio" << dendl;
+      aio = false;
+    }
+#ifndef HAVE_LIBAIO
+    if (aio) {
+      derr << "FileJournal::_open_any: libaio not compiled in; disabling aio" << dendl;
+      aio = false;
+    }
+#endif
+  }
   ~FileJournal() {
     delete[] zero_buf;
   }
