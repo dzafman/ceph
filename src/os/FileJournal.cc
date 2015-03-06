@@ -320,13 +320,15 @@ int FileJournal::_open_file(int64_t oldsize, blksize_t blksize,
   return 0;
 }
 
+// This can not be used on an active journal
 int FileJournal::check()
 {
   int ret;
 
+  assert(fd == -1);
   ret = _open(false, false);
   if (ret)
-    goto done;
+    return ret;
 
   ret = read_header(&header);
   if (ret < 0)
@@ -343,8 +345,7 @@ int FileJournal::check()
   ret = 0;
 
  done:
-  VOID_TEMP_FAILURE_RETRY(::close(fd));
-  fd = -1;
+  close();
   return ret;
 }
 
@@ -432,16 +433,20 @@ done:
   return ret;
 }
 
+// This can not be used on an active journal
 int FileJournal::peek_fsid(uuid_d& fsid)
 {
+  assert(fd == -1);
   int r = _open(false, false);
   if (r)
     return r;
   r = read_header(&header);
   if (r < 0)
-    return r;
+    goto out;
   fsid = header.fsid;
-  return 0;
+out:
+  close();
+  return r;
 }
 
 int FileJournal::open(uint64_t fs_op_seq)
@@ -566,34 +571,29 @@ void FileJournal::close()
 }
 
 
-int FileJournal::dump(ostream& out) const
+int FileJournal::dump(ostream& out)
 {
   return _dump(out, false);
 }
 
-int FileJournal::simple_dump(ostream& out) const
+int FileJournal::simple_dump(ostream& out)
 {
   return _dump(out, true);
 }
 
-int FileJournal::_dump(ostream& out, bool simple) const
+int FileJournal::_dump(ostream& out, bool simple)
 {
-  int err = 0;
-  bool opened = false;
-  header_t header;	// Since const function need local header
-  int myfd = fd;
+  dout(10) << "_dump" << dendl;
 
-  dout(10) << "dump" << dendl;
-  if (fd == -1) {
-    opened = true;
-    err = _open(false, false);
-    if (err)
-      return err;
-    myfd = fd;
+  assert(fd == -1);
+  int err = _open(false, false);
+  if (err)
+    return err;
 
-    err = read_header(&header);
-    if (err < 0)
-      return err;
+  err = read_header(&header);
+  if (err < 0) {
+    close();
+    return err;
   }
 
   off64_t next_pos = header.start;
@@ -672,8 +672,7 @@ int FileJournal::_dump(ostream& out, bool simple) const
   f.flush(out);
   dout(10) << "dump finish" << dendl;
 
-  if (opened)
-    _close(myfd);
+  close();
   return err;
 }
 
