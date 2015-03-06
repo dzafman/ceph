@@ -2277,7 +2277,7 @@ bool ends_with(const string& check, const string& ending)
 }
 
 // Based on FileStore::dump_journal(), set-up enough to only dump
-int mydump_journal(ostream& out, string journalpath, bool m_journal_dio)
+int mydump_journal(Formatter *f, string journalpath, bool m_journal_dio)
 {
   int r;
 
@@ -2285,7 +2285,7 @@ int mydump_journal(ostream& out, string journalpath, bool m_journal_dio)
     return -EINVAL;
 
   FileJournal *journal = new FileJournal(uuid_d(), NULL, NULL, journalpath.c_str(), m_journal_dio);
-  r = journal->dump(out);
+  r = journal->_fdump(*f, false);
   delete journal;
   return r;
 }
@@ -2484,9 +2484,24 @@ int main(int argc, char **argv)
   }
   g_conf->apply_changes(NULL);
 
+  // Special list handling.  Treating pretty_format as human readable,
+  // with one object per line and not an enclosing array.
+  human_readable = ends_with(format, "-pretty");
+  if (op == "list" && human_readable) {
+    // Remove -pretty from end of format which we know is there
+    format = format.substr(0, format.size() - strlen("-pretty"));
+  }
+
+  formatter = Formatter::create(format);
+  if (formatter == NULL) {
+    cerr << "unrecognized format: " << format << std::endl;
+    myexit(1);
+  }
+
   // Special handling for filestore journal, so we can dump it without mounting
   if (op == "dump-journal" && type == "filestore") {
-    int ret = mydump_journal(cout, jpath, g_conf->journal_dio);
+    int ret = mydump_journal(formatter, jpath, g_conf->journal_dio);
+    formatter->flush(cout);
     myexit(ret != 0);
   }
 
@@ -2824,21 +2839,6 @@ int main(int argc, char **argv)
       ret = action_on_all_objects_in_pg(fs, coll_t(pgid), *action, debug);
     else
       ret = action_on_all_objects(fs, *action, debug);
-    goto out;
-  }
-
-  // Special list handling.  Treating pretty_format as human readable,
-  // with one object per line and not an enclosing array.
-  human_readable = ends_with(format, "-pretty");
-  if (op == "list" && human_readable) {
-    // Remove -pretty from end of format which we know is there
-    format = format.substr(0, format.size() - strlen("-pretty"));
-  }
-
-  formatter = Formatter::create(format);
-  if (formatter == NULL) {
-    cerr << "unrecognized format: " << format << std::endl;
-    ret = 1;
     goto out;
   }
 
