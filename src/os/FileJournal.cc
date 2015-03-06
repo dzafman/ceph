@@ -643,11 +643,11 @@ int FileJournal::_fdump(Formatter &f, bool simple)
         dout(2) << "Unable to read past sequence " << seq
 	    << " but header indicates the journal has committed up through "
 	    << header.committed_up_to << ", journal is corrupt" << dendl;
+        err = EINVAL;
       }
       dout(25) << ss.str() << dendl;
       dout(25) << "No further valid entries found, journal is most likely valid"
 	  << dendl;
-      err = EINVAL;
       break;
     }
 
