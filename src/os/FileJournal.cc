@@ -583,6 +583,14 @@ int FileJournal::simple_dump(ostream& out)
 
 int FileJournal::_dump(ostream& out, bool simple)
 {
+  JSONFormatter f(true);
+  int ret = _fdump(f, simple);
+  f.flush(out);
+  return ret;
+}
+
+int FileJournal::_fdump(Formatter &f, bool simple)
+{
   dout(10) << "_dump" << dendl;
 
   assert(fd == -1);
@@ -598,7 +606,6 @@ int FileJournal::_dump(ostream& out, bool simple)
 
   off64_t next_pos = header.start;
 
-  JSONFormatter f(true);
   f.open_object_section("journal");
 
   f.open_object_section("header");
@@ -669,7 +676,6 @@ int FileJournal::_dump(ostream& out, bool simple)
 
   f.close_section();
   f.close_section();
-  f.flush(out);
   dout(10) << "dump finish" << dendl;
 
   close();
