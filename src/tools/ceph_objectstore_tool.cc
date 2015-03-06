@@ -2786,6 +2786,7 @@ int main(int argc, char **argv)
     goto out;
   } else if (op == "dump-journal-mount") {
     // Undocumented feature to dump journal with mounted fs
+    // XXX: This doesn't support format option
     int r = fs->dump_journal(cout);
     if (r) {
       if (r < -EOPNOTSUPP) {
