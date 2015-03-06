@@ -474,18 +474,89 @@ def main(argv):
     cmd = "./ceph-objectstore-tool --type filestore --data-path {dir}/{osd} --op list --pgid {pg}".format(dir=OSDDIR, osd=ONEOSD, pg=ONEPG)
     ERRORS += test_failure(cmd, "Must provide --journal-path")
 
-    # Test --op list and generate json for all objects
     TMPFILE = r"/tmp/tmp.{pid}".format(pid=pid)
     ALLPGS = OBJREPPGS + OBJECPGS
-
-    print "Test --op list variants"
     OSDS = get_osds(ALLPGS[0], OSDDIR)
     osd = OSDS[0]
+
+    # Test --op dump-journal by loading json
+    print "Test --op dump-journal"
+    cmd = (CFSD_PREFIX + "--op dump-journal --format json").format(osd=osd)
+    logging.debug(cmd)
+    tmpfd = open(TMPFILE, "w")
+    ret = call(cmd, shell=True, stdout=tmpfd)
+    if ret != 0:
+        logging.error("Bad exit status {ret} from {cmd}".format(ret=ret, cmd=cmd))
+        ERRORS += 1
+    tmpfd.close()
+    tmpfd = open(TMPFILE, "r")
+    jsondict = json.load(tmpfd)
+    tmpfd.close()
+    os.unlink(TMPFILE)
+
+    if not 'header' in jsondict:
+        logging.error("Key 'header' not in dump-journal")
+        ERRORS += 1
+    elif not 'max_size' in jsondict['header']:
+        logging.error("Key 'max_size' not in dump-journal header")
+        ERRORS += 1
+    else:
+        print "\tJournal max_size = {size}".format(size=jsondict['header']['max_size'])
+    if not 'entries' in jsondict:
+        logging.error("Key 'entries' not in dump-journal output")
+        ERRORS += 1
+    elif len(jsondict['entries']) == 0:
+        logging.warning("No entries in journal found, probably a problem")
+        ERRORS += 1
+    else:
+        for enum in range(len(jsondict['entries'])):
+            if not 'offset' in jsondict['entries'][enum]:
+                logging.error("No 'offset' key in entry {e}".format(e=enum))
+                ERRORS += 1
+            if not 'seq' in jsondict['entries'][enum]:
+                logging.error("No 'seq' key in entry {e}".format(e=enum))
+                ERRORS += 1
+            if not 'transactions' in jsondict['entries'][enum]:
+                logging.error("No 'transactions' key in entry {e}".format(e=enum))
+                ERRORS += 1
+            elif len(jsondict['entries'][enum]['transactions']) == 0:
+                logging.error("No transactions found in entry {e}".format(e=enum))
+                ERRORS += 1
+            else:
+                for tnum in range(len(jsondict['entries'][0]['transactions'])):
+                    if not 'trans_num' in jsondict['entries'][enum]['transactions'][tnum]:
+                        logging.error("Key 'trans_num' missing from entry {e} trans {t}".format(e=enum,t=tnum))
+                        ERRORS += 1
+                    elif jsondict['entries'][enum]['transactions'][tnum]['trans_num'] != tnum:
+                        ft = jsondict['entries'][enum]['transactions'][tnum]['trans_num']
+                        logging.error("Bad trans_num ({ft}) entry {e} trans {t}".format(ft=ft,e=enum,t=tnum))
+                        ERRORS += 1
+                    if not 'ops' in jsondict['entries'][enum]['transactions'][tnum]:
+                        logging.error("Key 'ops' missing from entry {e} trans {t}".format(e=enum,t=tnum))
+                        ERRORS += 1
+                    elif len(jsondict['entries'][enum]['transactions'][tnum]['ops']) == 0:
+                        logging.error("No ops found in entry {e} trans {t}".format(e=enum,t=tnum))
+                        ERRORS += 1
+                    else:
+                        for onum in range(len(jsondict['entries'][enum]['transactions'][tnum]['ops'])):
+                            if not 'op_num' in jsondict['entries'][enum]['transactions'][tnum]['ops'][onum]:
+                                logging.error("Key 'op_num' missing from entry {e} trans {t} op {o}".format(e=enum,t=tnum,o=onum))
+                                ERRORS += 1
+                            elif jsondict['entries'][enum]['transactions'][tnum]['ops'][onum]['op_num'] != onum:
+                                fo = jsondict['entries'][enum]['transactions'][tnum]['ops'][onum]['op_num']
+                                logging.error("Bad op_num ({fo}) from entry {e} trans {t} op {o}".format(fo=fo,e=enum,t=tnum,o=onum))
+                                ERRORS += 1
+                            if not 'op_name' in jsondict['entries'][enum]['transactions'][tnum]['ops'][onum]:
+                                logging.error("Key 'op_name' missing from entry {e} trans {t} op {o}".format(e=enum,t=tnum,o=onum))
+                                ERRORS += 1
+
+    # Test --op list and generate json for all objects
+    print "Test --op list variants"
 
     # retrieve all objects from all PGs
     cmd = (CFSD_PREFIX + "--op list --format json").format(osd=osd)
     logging.debug(cmd);
-    tmpfd = open(TMPFILE, "a")
+    tmpfd = open(TMPFILE, "w")
     logging.debug(cmd)
     ret = call(cmd, shell=True, stdout=tmpfd)
     if ret != 0:
