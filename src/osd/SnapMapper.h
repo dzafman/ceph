@@ -105,6 +105,7 @@ public:
     object_snaps() {}
     void encode(bufferlist &bl) const;
     void decode(bufferlist::iterator &bp);
+    void dump(Formatter *f) const;
   };
 
 private:

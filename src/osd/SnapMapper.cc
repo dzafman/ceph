@@ -133,6 +133,17 @@ void SnapMapper::object_snaps::decode(bufferlist::iterator &bl)
   DECODE_FINISH(bl);
 }
 
+void SnapMapper::object_snaps::dump(Formatter *f) const
+{
+  oid.dump(f);
+  f->open_array_section("snaps");
+  for (std::set<snapid_t>::iterator i = snaps.begin();
+    i != snaps.end(); ++i) {
+    f->dump_int("snap", *i);
+  }
+  f->close_section();
+}
+
 int SnapMapper::get_snaps(
   const hobject_t &oid,
   object_snaps *out)

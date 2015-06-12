@@ -31,6 +31,7 @@
 #include "osd/PGLog.h"
 #include "osd/OSD.h"
 #include "osd/PG.h"
+#include "osd/SnapMapper.h"
 
 #include "json_spirit/json_spirit_value.h"
 #include "json_spirit/json_spirit_reader.h"
@@ -1396,6 +1397,25 @@ int do_meta(ObjectStore *store, string object, Formatter *formatter, bool debug,
   return 0;
 }
 
+int do_snapmapper(ObjectStore *store, Formatter *formatter, bool debug)
+{
+  debug;
+  if (!store->exists(META_COLL, OSD::make_snapmapper_oid()))
+    return -ENOENT;
+  formatter->open_array_section("snapmapper");
+  ObjectMap::ObjectMapIterator iter = store->get_omap_iterator(META_COLL, OSD::make_snapmapper_oid());
+  while(iter->valid()) {
+    formatter->dump_string("key", iter->key());
+    SnapMapper::object_snaps snaps;
+    bufferlist::iterator bi = iter->value().begin();
+    snaps.decode(bi);
+    snaps.dump(formatter);
+  }
+  formatter->close_section();
+  formatter->flush(cout);
+  return 0;
+}
+
 int do_remove_object(ObjectStore *store, coll_t coll, ghobject_t &ghobj)
 {
   spg_t pg;
@@ -1843,9 +1863,9 @@ int main(int argc, char **argv)
     ("journal-path", po::value<string>(&jpath),
      "path to journal, mandatory for filestore type")
     ("pgid", po::value<string>(&pgidstr),
-     "PG id, mandatory except for import, fix-lost, list-pgs, set-allow-sharded-objects, dump-journal, dump-super, meta-list")
+     "PG id, mandatory except for import, fix-lost, list-pgs, set-allow-sharded-objects, dump-journal, dump-super, meta-list, snapmapper")
     ("op", po::value<string>(&op),
-     "Arg is one of [info, log, remove, export, import, list, fix-lost, list-pgs, rm-past-intervals, set-allow-sharded-objects, dump-journal, dump-super, meta-list]")
+     "Arg is one of [info, log, remove, export, import, list, fix-lost, list-pgs, rm-past-intervals, set-allow-sharded-objects, dump-journal, dump-super, meta-list, snapmapper]")
     ("file", po::value<string>(&file),
      "path of file to export or import")
     ("format", po::value<string>(&format)->default_value("json-pretty"),
@@ -2213,7 +2233,7 @@ int main(int argc, char **argv)
   if (op != "list" && op != "import" && op != "fix-lost"
       && op != "list-pgs"  && op != "set-allow-sharded-objects"
       && op != "dump-journal-mount" && op != "dump-super"
-      && op != "meta-list" && (pgidstr.length() == 0)) {
+      && op != "meta-list" && op != "snapmapper" && (pgidstr.length() == 0)) {
     cerr << "Must provide pgid" << std::endl;
     usage(desc);
     ret = 1;
@@ -2379,6 +2399,13 @@ int main(int argc, char **argv)
     goto out;
   }
 
+  if (op == "snapmapper") {
+    ret = do_snapmapper(fs, formatter, debug);
+    if (ret < 0) {
+      cerr << "do_snapmapper failed: " << cpp_strerror(ret) << std::endl;
+    }
+    goto out;
+  }
   ret = fs->list_collections(ls);
   if (ret < 0) {
     cerr << "failed to list pgs: " << cpp_strerror(ret) << std::endl;
