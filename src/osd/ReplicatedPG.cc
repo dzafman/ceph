@@ -11750,7 +11750,7 @@ void ReplicatedPG::_scrub(
   hobject_t head;
   SnapSet snapset;
   vector<snapid_t>::reverse_iterator curclone;
-  hobject_t next_clone;
+  bool missing = false;
 
   bufferlist last_data;
 
@@ -11759,177 +11759,243 @@ void ReplicatedPG::_scrub(
        ++p) {
     const hobject_t& soid = p->first;
     object_stat_sum_t stat;
-    if (soid.snap != CEPH_SNAPDIR)
+    bool got_oi;
+    object_info_t oi;
+
+    // XXX: Can this really happen?
+    // XXX: Should we do this later to count object and check OI_ATTR?
+    if (soid.snap == 0)
+      continue;
+
+    if (!soid.is_snapdir())
       stat.num_objects++;
 
     if (soid.nspace == cct->_conf->osd_hit_set_namespace)
       stat.num_objects_hit_set_archive++;
 
-    // new snapset?
-    if (soid.snap == CEPH_SNAPDIR ||
-	soid.snap == CEPH_NOSNAP) {
-      if (p->second.attrs.count(SS_ATTR) == 0) {
-	osd->clog->error() << mode << " " << info.pgid << " " << soid
-			  << " no '" << SS_ATTR << "' attr";
-        ++scrubber.shallow_errors;
-	continue;
-      }
-      bufferlist bl;
-      bl.push_back(p->second.attrs[SS_ATTR]);
-      bufferlist::iterator blp = bl.begin();
-      ::decode(snapset, blp);
-
-      // did we finish the last oid?
-      if (head != hobject_t() &&
-	  !pool.info.allow_incomplete_clones()) {
-	osd->clog->error() << mode << " " << info.pgid << " " << head
-			  << " missing clones";
-        ++scrubber.shallow_errors;
-      }
-      
-      // what will be next?
-      if (snapset.clones.empty())
-	head = hobject_t();  // no clones.
-      else {
-	curclone = snapset.clones.rbegin();
-	head = p->first;
-	next_clone = hobject_t();
-	dout(20) << "  snapset " << snapset << dendl;
-      }
+    if (soid.is_snap()) {
+      // it's a clone
+      stat.num_object_clones++;
     }
 
     // basic checks.
     if (p->second.attrs.count(OI_ATTR) == 0) {
+      got_oi = false;
       osd->clog->error() << mode << " " << info.pgid << " " << soid
 			<< " no '" << OI_ATTR << "' attr";
       ++scrubber.shallow_errors;
+    } else {
+      got_oi = true;
+      bufferlist bv;
+      bv.push_back(p->second.attrs[OI_ATTR]);
+      try {
+      oi.decode(bv);
+
+      if (pgbackend->be_get_ondisk_size(oi.size) != p->second.size) {
+        osd->clog->error() << mode << " " << info.pgid << " " << soid
+			   << " on disk size (" << p->second.size
+			   << ") does not match object info size ("
+			   << oi.size << ") adjusted for ondisk to ("
+			   << pgbackend->be_get_ondisk_size(oi.size)
+			   << ")";
+        ++scrubber.shallow_errors;
+      }
+
+      dout(20) << mode << "  " << soid << " " << oi << dendl;
+
+      // A clone num_bytes will be added later when we have snapset
+      if (!soid.is_snap()) {
+        stat.num_bytes += oi.size;
+      }
+      if (soid.nspace == cct->_conf->osd_hit_set_namespace)
+        stat.num_bytes_hit_set_archive += oi.size;
+
+      if (!soid.is_snapdir()) {
+        if (oi.is_dirty())
+	  ++stat.num_objects_dirty;
+        if (oi.is_whiteout())
+	  ++stat.num_whiteouts;
+        if (oi.is_omap())
+	  ++stat.num_objects_omap;
+      }
+      }
+      catch (buffer::error& e) {
+        osd->clog->error() << mode << " " << info.pgid << " " << soid
+		<< " can't decode '" << OI_ATTR << "' attr " << e.what();
+        ++scrubber.shallow_errors;
+      }
+    }
+
+    // If we are processing clones, then expecting an object with snap for this head
+    if (!head.is_min() && curclone != snapset.clones.rend() &&
+        (soid.has_snapset() || soid.get_head() != head.get_head())) {
+
+      dout(20) << __func__ << " " << mode << " new object or head found "
+	       << info.pgid << " " << head << " " << soid << dendl;
+
+      missing = true;
+
+      // If we can ignore missing clones then skip them
+      if (pool.info.allow_incomplete_clones()) {
+        curclone = snapset.clones.rend();
+      } else {
+        // Produce output for all remaining clones
+        hobject_t next_clone(head);
+        while (curclone != snapset.clones.rend()) {
+          next_clone.snap = *curclone;
+	  osd->clog->error() << mode << " " << info.pgid << " " << head
+			     << " expected clone (1) " << next_clone;
+	  ++scrubber.shallow_errors;
+	  ++curclone;
+	}
+      }
+    }
+    // If we aren't doing clones, then expecting a has_snapset (NOSNAP/SNAPDIR)
+    // Note that we do this test after, because all previous expected
+    // clones may have been run through above.
+    if ((head.is_min() || curclone == snapset.clones.rend()) && !soid.has_snapset()) {
+      osd->clog->error() << mode << " " << info.pgid << " " << soid
+			 << " is an unexpected clone (1)";
+      ++scrubber.shallow_errors;
       continue;
     }
-    bufferlist bv;
-    bv.push_back(p->second.attrs[OI_ATTR]);
-    object_info_t oi(bv);
 
-    if (pgbackend->be_get_ondisk_size(oi.size) != p->second.size) {
-      osd->clog->error() << mode << " " << info.pgid << " " << soid
-			<< " on disk size (" << p->second.size
-			<< ") does not match object info size ("
-			<< oi.size << ") adjusted for ondisk to ("
-			<< pgbackend->be_get_ondisk_size(oi.size)
-			<< ")";
-      ++scrubber.shallow_errors;
-    }
+    // new snapset?
+    if (soid.has_snapset()) {
 
-    dout(20) << mode << "  " << soid << " " << oi << dendl;
-
-    if (soid.is_snap()) {
-      stat.num_bytes += snapset.get_clone_bytes(soid.snap);
+  if (missing) {
+    assert(!head.is_min());
+    if (pool.info.allow_incomplete_clones()) {
+      dout(20) << __func__ << " " << mode << " " << info.pgid << " " << head
+               << " skipped some clones in cache tier (1)" << dendl;
     } else {
-      stat.num_bytes += oi.size;
+      osd->clog->error() << mode << " " << info.pgid << " " << head
+		       << " missing clones (1)";
     }
-    if (soid.nspace == cct->_conf->osd_hit_set_namespace)
-      stat.num_bytes_hit_set_archive += oi.size;
+  }
 
-    if (!soid.is_snapdir()) {
-      if (oi.is_dirty())
-	++stat.num_objects_dirty;
-      if (oi.is_whiteout())
-	++stat.num_whiteouts;
-      if (oi.is_omap())
-	++stat.num_objects_omap;
-    }
+      // Set this as a new head object
+      head = soid;
+      missing = false;
 
-    if (!next_clone.is_min() && next_clone != soid &&
-	pool.info.allow_incomplete_clones()) {
-      // it is okay to be missing one or more clones in a cache tier.
-      // skip higher-numbered clones in the list.
-      while (curclone != snapset.clones.rend() &&
-	     soid.snap < *curclone)
-	++curclone;
-      if (curclone != snapset.clones.rend() &&
-	  soid.snap == *curclone) {
-	dout(20) << __func__ << " skipped some clones in cache tier" << dendl;
-	next_clone.snap = *curclone;
-      }
-      if (curclone == snapset.clones.rend() ||
-	  soid.snap == CEPH_NOSNAP) {
-	dout(20) << __func__ << " skipped remaining clones in cache tier"
-		 << dendl;
-	next_clone = hobject_t();
-	head = hobject_t();
-      }
-    }
-    if (!next_clone.is_min() && next_clone != soid) {
-      osd->clog->error() << mode << " " << info.pgid << " " << soid
-			<< " expected clone " << next_clone;
-      ++scrubber.shallow_errors;
-    }
-
-    if (soid.snap == CEPH_NOSNAP || soid.snap == CEPH_SNAPDIR) {
-      if (soid.snap == CEPH_NOSNAP && !snapset.head_exists) {
+      if (p->second.attrs.count(SS_ATTR) == 0) {
 	osd->clog->error() << mode << " " << info.pgid << " " << soid
-			  << " snapset.head_exists=false, but head exists";
+			  << " no '" << SS_ATTR << "' attr";
         ++scrubber.shallow_errors;
-      }
-      if (soid.snap == CEPH_SNAPDIR && snapset.head_exists) {
-	osd->clog->error() << mode << " " << info.pgid << " " << soid
-			  << " snapset.head_exists=true, but snapdir exists";
-        ++scrubber.shallow_errors;
-      }
-      if (curclone == snapset.clones.rend()) {
-	next_clone = hobject_t();
+	// Can't get snapset, so set-up as no clones
+	snapset = SnapSet();
+	curclone = snapset.clones.rend();
       } else {
-	next_clone = soid;
-	next_clone.snap = *curclone;
+
+	bufferlist bl;
+	bl.push_back(p->second.attrs[SS_ATTR]);
+	bufferlist::iterator blp = bl.begin();
+        try {
+	::decode(snapset, blp);
+
+	// what will be next?
+	curclone = snapset.clones.rbegin();
+
+	if (!snapset.clones.empty()) {
+	  dout(20) << "  snapset " << snapset << dendl;
+	}
+
+	if (soid.is_head() && !snapset.head_exists) {
+	  osd->clog->error() << mode << " " << info.pgid << " " << soid
+			  << " snapset.head_exists=false, but head exists";
+	  ++scrubber.shallow_errors;
+	}
+	if (soid.is_snapdir() && snapset.head_exists) {
+	  osd->clog->error() << mode << " " << info.pgid << " " << soid
+			  << " snapset.head_exists=true, but snapdir exists";
+	  ++scrubber.shallow_errors;
+	}
       }
-    } else if (soid.snap) {
-      // it's a clone
-      stat.num_object_clones++;
-      
-      if (head == hobject_t()) {
+      catch (buffer::error& e) {
+        osd->clog->error() << mode << " " << info.pgid << " " << soid
+		<< " can't decode '" << SS_ATTR << "' attr " << e.what();
+        ++scrubber.shallow_errors;
+      }
+      }
+    } else {
+      assert(soid.is_snap() && soid.snap != 0);
+      assert(!head.is_min());
+
+      // If there are missing clones, generate log for each one
+      hobject_t next_clone(head);
+      while(curclone != snapset.clones.rend() && *curclone > soid.snap) {
+	missing = true;
+	// it is okay to be missing one or more clones in a cache tier.
+	// skip higher-numbered clones in the list.
+	if (!pool.info.allow_incomplete_clones()) {
+	  next_clone.snap = *curclone;
+	  osd->clog->error() << mode << " " << info.pgid << " " << head
+			     << " expected clone (2) " << next_clone;
+	  ++scrubber.shallow_errors;
+	}
+	// Clones are descending
+	++curclone;
+      }
+
+      // If no more clones or next clone should have a lesser snap, so this
+      // clone shouldn't be here, log error and go to next object.
+      if (curclone == snapset.clones.rend() || *curclone < soid.snap) {
 	osd->clog->error() << mode << " " << info.pgid << " " << soid
-			  << " found clone without head";
+			   << " is an unexpected clone (2)";
 	++scrubber.shallow_errors;
 	continue;
       }
 
-      if (soid.snap != *curclone) {
-	continue; // we warn above.  we could do better here...
-      }
+      assert(soid.snap == *curclone);
 
-      if (oi.size != snapset.clone_size[*curclone]) {
+      stat.num_bytes += snapset.get_clone_bytes(soid.snap);
+
+      if (got_oi && oi.size != snapset.clone_size[*curclone]) {
 	osd->clog->error() << mode << " " << info.pgid << " " << soid
 			  << " size " << oi.size << " != clone_size "
 			  << snapset.clone_size[*curclone];
 	++scrubber.shallow_errors;
       }
 
+      dout(20) << __func__ << " " << mode << " matched clone " << soid << dendl;
       // verify overlap?
       // ...
 
       // what's next?
-      if (curclone != snapset.clones.rend()) {
-	++curclone;
-      }
-      if (curclone == snapset.clones.rend()) {
-	head = hobject_t();
-	next_clone = hobject_t();
-      } else {
-	next_clone.snap = *curclone;
-      }
-
-    } else {
-      // it's unversioned.
-      next_clone = hobject_t();
+      ++curclone;
     }
 
     scrub_cstat.add(stat);
   }
 
-  if (!next_clone.is_min() &&
-      !pool.info.allow_incomplete_clones()) {
-    osd->clog->error() << mode << " " << info.pgid
-		      << " expected clone " << next_clone;
-    ++scrubber.shallow_errors;
+  if (!head.is_min() && curclone != snapset.clones.rend()) {
+    dout(20) << __func__ << " " << mode << " No more objects "
+	     << info.pgid << " " << head << dendl;
+
+    missing = true;
+    // If we can ignore missing clones then skip them
+    if (pool.info.allow_incomplete_clones())
+      curclone = snapset.clones.rend();
+
+    // Produce output for all remaining clones
+    hobject_t next_clone(head);
+    while (curclone != snapset.clones.rend()) {
+      next_clone.snap = *curclone;
+      osd->clog->error() << mode << " " << info.pgid << " " << head
+			 << " expected clone (3) " << next_clone;
+      ++scrubber.shallow_errors;
+      ++curclone;
+    }
+  }
+  if (missing) {
+    assert(!head.is_min());
+    if (pool.info.allow_incomplete_clones()) {
+      dout(20) << __func__ << " " << mode << " " << info.pgid << " " << head
+               << " skipped some clones in cache tier (2)" << dendl;
+    } else {
+      osd->clog->error() << mode << " " << info.pgid << " " << head
+		       << " missing clones (2)";
+    }
   }
 
   for (map<hobject_t,pair<uint32_t,uint32_t>, hobject_t::BitwiseComparator>::const_iterator p =
