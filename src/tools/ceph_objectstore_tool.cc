@@ -1842,6 +1842,39 @@ int print_obj_info(ObjectStore *store, coll_t coll, ghobject_t &ghobj, Formatter
   return 0;
 }
 
+int get_snapset(ObjectStore *store, coll_t coll, ghobject_t &ghobj, SnapSet &ss)
+{
+  bufferlist attr;
+  int r = store->getattr(coll, ghobj, SS_ATTR, attr);
+  if (r < 0) {
+    cerr << "Error getting snapset on : " << make_pair(coll, ghobj) << ", "
+       << cpp_strerror(r) << std::endl;
+    return r;
+  }
+  bufferlist::iterator bp = attr.begin();
+  try {
+    ::decode(ss, bp);
+  } catch (...) {
+    r = -EINVAL;
+    cerr << "Error getting snapset on : " << make_pair(coll, ghobj) << ", "
+         << cpp_strerror(r) << std::endl;
+    return r;
+  }
+  return 0;
+}
+
+int print_snapset(ObjectStore *store, coll_t coll, ghobject_t &ghobj, Formatter* formatter)
+{
+  SnapSet ss;
+  get_snapset(store, coll, ghobj, ss);
+  formatter->open_object_section("SnapSet");
+  ss.dump(formatter);
+  formatter->close_section();
+  formatter->flush(cout);
+  cout << std::endl;
+  return 0;
+}
+
 void usage(po::options_description &desc)
 {
     cerr << std::endl;
@@ -1858,6 +1891,7 @@ void usage(po::options_description &desc)
     cerr << "ceph-objectstore-tool ... <object> list-omap" << std::endl;
     cerr << "ceph-objectstore-tool ... <object> remove" << std::endl;
     cerr << "ceph-objectstore-tool ... <object> dump-info" << std::endl;
+    cerr << "ceph-objectstore-tool ... <object> dump-clones" << std::endl;
     cerr << std::endl;
     cerr << "<object> can be a JSON object description as displayed" << std::endl;
     cerr << "by --op list." << std::endl;
@@ -2751,6 +2785,14 @@ int main(int argc, char **argv)
         goto out;
       } else if (objcmd == "dump-info") {
 	ret = print_obj_info(fs, coll, ghobj, formatter);
+	goto out;
+      } else if (objcmd == "dump-clones") {
+	if (!ghobj.hobj.has_snapset()) {
+	  cerr << "'" << objcmd << "' requires a head or snapdir object" << std::endl;
+	  ret = 1;
+	  goto out;
+	}
+	ret = print_snapset(fs, coll, ghobj, formatter);
 	goto out;
       }
       cerr << "Unknown object command '" << objcmd << "'" << std::endl;
