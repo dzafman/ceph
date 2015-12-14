@@ -770,7 +770,7 @@ OPTION(rocksdb_separate_wal_dir, OPT_BOOL, false) // use $path.wal for wal
 OPTION(rocksdb_db_paths, OPT_STR, "")   // path,size( path,size)*
 OPTION(rocksdb_log_to_ceph_log, OPT_BOOL, true)  // log to ceph log
 // rocksdb options that will be used for keyvaluestore(if backend is rocksdb)
-OPTION(keyvaluestore_rocksdb_options, OPT_STR, "")
+OPTION(keyvaluestore_rocksdb_options, OPT_STR, "write_buffer_size=1024,max_write_buffer_number=2")
 // rocksdb options that will be used for omap(if omap_backend is rocksdb)
 OPTION(filestore_rocksdb_options, OPT_STR, "")
 // rocksdb options that will be used in monstore

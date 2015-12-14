@@ -880,6 +880,7 @@ int BlueStore::_open_bdev(bool create)
   return 0;
 
  fail:
+  bdev->close();
   delete bdev;
   bdev = NULL;
   return r;
@@ -1152,6 +1153,7 @@ int BlueStore::_open_db(bool create)
       delete bluefs;
       return r;
     }
+#if 0
     if (g_conf->bluestore_bluefs_env_mirror) {
       rocksdb::Env *a = new BlueRocksEnv(bluefs);
       unique_ptr<rocksdb::Directory> dir;
@@ -1165,11 +1167,14 @@ int BlueStore::_open_db(bool create)
       }
       env = new rocksdb::EnvMirror(b, a);
     } else {
+#endif
       env = new BlueRocksEnv(bluefs);
 
       // simplify the dir names, too, as "seen" by rocksdb
       strcpy(fn, "db");
+#if 0
     }
+#endif
 
     if (create) {
       env->CreateDir(fn);
