@@ -747,21 +747,21 @@ int librados::IoCtxImpl::operate_read(const object_t& oid,
   return r;
 }
 
-int librados::IoCtxImpl::operate_repair_read(const object_t& oid,
+int librados::IoCtxImpl::aio_operate_repair_read(const object_t& oid,
 				      ::ObjectOperation *o,
+				      AioCompletionImpl *c,
 				      bufferlist *pbl,
 				      int flags, int32_t osdid, epoch_t e, int op_flags)
 {
   if (!o->size())
     return 0;
 
-  Mutex mylock("IoCtxImpl::operate_repair_read::mylock");
-  Cond cond;
-  bool done;
-  int r;
-  version_t ver;
+  Context *onack = new C_aio_Ack(c);
 
-  Context *onack = new C_SafeCond(&mylock, &cond, &done, &r);
+  c->is_read = true;
+  c->io = this;
+
+  version_t ver;
 
   int op = o->ops[0].op.op;
   ldout(client->cct, 10) << ceph_osd_op_name(op) << " oid=" << oid << " nspace=" << oloc.nspace << dendl;
@@ -783,18 +783,27 @@ int librados::IoCtxImpl::operate_repair_read(const object_t& oid,
   objecter_op->target.osd = osdid;
   objecter_op->target.use_osd_epoch = true;
   objecter_op->target.epoch = e;
-  objecter->op_submit(objecter_op);
+  objecter->op_submit(objecter_op, &c->tid);
+  return c->tid;
+}
 
-  mylock.Lock();
-  while (!done)
-    cond.Wait(mylock);
-  mylock.Unlock();
-  ldout(client->cct, 10) << "Objecter returned from "
-	<< ceph_osd_op_name(op) << " r=" << r << dendl;
+int librados::IoCtxImpl::operate_repair_read(const object_t& oid,
+				      ::ObjectOperation *o,
+				      bufferlist *pbl,
+				      int flags, int32_t osdid, epoch_t e, int op_flags)
+{
+  librados::AioCompletionImpl *c = new librados::AioCompletionImpl;
 
-  set_sync_op_version(ver);
+  int r = aio_operate_repair_read(oid, o, c, pbl, flags, osdid, e, flags);
+  if (r < 0)
+    return r;
 
-  return r;
+  c->wait_for_complete();
+
+  if (c->get_return_value() >= 0)
+    set_sync_op_version(c->get_version());
+
+  return c->get_return_value();
 }
 
 int librados::IoCtxImpl::aio_operate_read(const object_t &oid,
@@ -922,6 +931,7 @@ int librados::IoCtxImpl::aio_repair_read(const object_t oid, AioCompletionImpl *
 				  bufferlist *pbl, size_t len, uint64_t off,
 				  uint64_t snapid, int flags, int32_t osdid, epoch_t e)
 {
+#if 0
   if (len > (size_t) INT_MAX)
     return -EDOM;
 
@@ -931,9 +941,15 @@ int librados::IoCtxImpl::aio_repair_read(const object_t oid, AioCompletionImpl *
   c->io = this;
   c->blp = pbl;
 
+int librados::IoCtxImpl::operate_repair_read(const object_t& oid,
+				      ::ObjectOperation *o,
+				      AioCompletionImpl *c,
+				      bufferlist *pbl,
+				      int flags, int32_t osdid, epoch_t e, int op_flags)
   c->tid = objecter->repair_read(oid, oloc,
 		 off, len, snapid, osdid, e, pbl, flags,
 		 onack, &c->objver);
+#endif
   return 0;
 }
 

@@ -1447,7 +1447,7 @@ int librados::IoCtx::operate(const std::string& oid, librados::ObjectReadOperati
   return io_ctx_impl->operate_read(obj, (::ObjectOperation*)o->impl, pbl);
 }
 
-int librados::IoCtx::operate_repair(const std::string& oid, librados::ObjectReadOperation *o, bufferlist *pbl,
+int librados::IoCtx::operate_repair_read(const std::string& oid, librados::ObjectReadOperation *o, bufferlist *pbl,
   uint32_t osdid, int32_t epoch, int op_flags)
 {
   object_t obj(oid);

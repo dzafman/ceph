@@ -967,7 +967,7 @@ namespace librados
     // compound object operations
     int operate(const std::string& oid, ObjectWriteOperation *op);
     int operate(const std::string& oid, ObjectReadOperation *op, bufferlist *pbl);
-    int operate_repair(const std::string& oid, librados::ObjectReadOperation *o, bufferlist *pbl,
+    int operate_repair_read(const std::string& oid, librados::ObjectReadOperation *o, bufferlist *pbl,
 		       uint32_t osdid, int32_t epoch, int op_flags);
     int aio_operate(const std::string& oid, AioCompletion *c, ObjectWriteOperation *op);
     int aio_operate(const std::string& oid, AioCompletion *c, ObjectWriteOperation *op, int flags);
