@@ -1294,26 +1294,14 @@ static void dump_shard(const shard_info_t& shard,
 		       const inconsistent_obj_t& inc,
 		       Formatter &f)
 {
+  // A missing shard just has that error and nothing else
   if (shard.has_shard_missing()) {
-    f.dump_bool("missing", shard.has_shard_missing());
+    f.open_array_section("errors");
+    f.dump_string("error", "missing");
+    f.close_section();
     return;
   }
-  if (shard.has_read_error())
-    f.dump_bool("read_error", shard.has_read_error());
-  if (shard.has_data_digest_mismatch())
-    f.dump_bool("data_digest_mismatch", shard.has_data_digest_mismatch());
-  if (shard.has_omap_digest_mismatch())
-    f.dump_bool("omap_digest_mismatch", shard.has_omap_digest_mismatch());
-  if (shard.has_size_mismatch())
-    f.dump_bool("size_mismatch", shard.has_size_mismatch());
-  if (!shard.has_read_error()) {
-    if (shard.has_data_digest_mismatch_oi())
-      f.dump_bool("data_digest_mismatch_oi", shard.has_data_digest_mismatch_oi());
-    if (shard.has_omap_digest_mismatch_oi())
-      f.dump_bool("omap_digest_mismatch_oi", shard.has_omap_digest_mismatch_oi());
-    if (shard.has_size_mismatch_oi())
-      f.dump_bool("size_mismatch_oi", shard.has_size_mismatch_oi());
-  }
+
   f.dump_unsigned("size", shard.size);
   if (shard.omap_digest_present) {
     f.dump_format("omap_digest", "0x%08x", shard.omap_digest);
@@ -1321,6 +1309,30 @@ static void dump_shard(const shard_info_t& shard,
   if (shard.data_digest_present) {
     f.dump_format("data_digest", "0x%08x", shard.data_digest);
   }
+
+  f.open_array_section("errors");
+  if (shard.has_read_error())
+    f.dump_string("error", "read_error");
+  if (shard.has_data_digest_mismatch())
+    f.dump_string("error", "data_digest_mismatch");
+  if (shard.has_omap_digest_mismatch())
+    f.dump_string("error", "omap_digest_mismatch");
+  if (shard.has_size_mismatch())
+    f.dump_string("error", "size_mismatch");
+  if (!shard.has_read_error()) {
+    if (shard.has_data_digest_mismatch_oi())
+      f.dump_string("error", "data_digest_mismatch_oi");
+    if (shard.has_omap_digest_mismatch_oi())
+      f.dump_string("error", "omap_digest_mismatch_oi");
+    if (shard.has_size_mismatch_oi())
+      f.dump_string("error", "size_mismatch_oi");
+  }
+  if (shard.has_attr_missing())
+    f.dump_string("error", "attr_missing");
+  if (shard.has_attr_unexpected())
+    f.dump_string("error", "attr_unexpected");
+  f.close_section();
+
   if (inc.has_attr_mismatch()) {
     f.open_object_section("attrs");
     for (auto kv : shard.attrs) {
@@ -1334,10 +1346,6 @@ static void dump_shard(const shard_info_t& shard,
     }
     f.close_section();
   }
-  if (shard.has_attr_missing())
-    f.dump_bool("attr_missing", shard.has_attr_missing());
-  if (shard.has_attr_unexpected())
-    f.dump_bool("attr_unexpected", shard.has_attr_unexpected());
 }
 
 static void dump_object_id(const object_id_t& object,
@@ -1393,8 +1401,12 @@ static void dump_inconsistent(const inconsistent_snapset_t& inc,
 			      Formatter &f)
 {
   dump_object_id(inc.object, f);
-  if (inc.ss_attr_missing())
-    f.dump_bool("ss_attr_missing", inc.ss_attr_missing());
+  f.open_array_section("errors");
+  //if (inc.ss_attr_missing())
+    f.dump_string("error", "ss_attr_missing");
+    f.dump_string("error", "oi_attr_missing");
+  f.close_section();
+#if 0
   if (inc.ss_attr_corrupted())
     f.dump_bool("ss_attr_corrupted", inc.ss_attr_corrupted());
   if (inc.oi_attr_missing())
@@ -1427,6 +1439,7 @@ static void dump_inconsistent(const inconsistent_snapset_t& inc,
     }
     f.close_section();
   }
+#endif
 }
 
 // dispatch the call by type
