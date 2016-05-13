@@ -69,8 +69,8 @@ void usage(ostream& out)
 "   cppool <pool-name> <dest-pool>   copy content of a pool\n"
 "   rmpool <pool-name> [<pool-name> --yes-i-really-really-mean-it]\n"
 "                                    remove pool <pool-name>'\n"
-"   purge <pool-name> --yes-i-really-really-mean-it\n"
-"                                    remove all objects from pool <pool-name> without removing it\n"
+"   purge <pool-name> --yes-i-really-really-mean-it [--force-full]\n"
+"                                    [force no matter full or not]remove all objects from pool <pool-name> without removing it\n"
 "   df                               show per-pool and total usage\n"
 "   ls                               list objects in pool\n\n"
 "   chown 123                        change the pool owner to auid 123\n"
@@ -101,8 +101,8 @@ void usage(ostream& out)
 "                                    default is 16 concurrent IOs and 4 MB ops\n"
 "                                    default is to clean up after write benchmark\n"
 "                                    default run-name is 'benchmark_last_metadata'\n"
-"   cleanup [--run-name run_name] [--prefix prefix]\n"
-"                                    clean up a previous benchmark operation\n"
+"   cleanup [--run-name run_name] [--prefix prefix] [--force-full]\n"
+"                                    [force no matter full or not]clean up a previous benchmark operation\n"
 "                                    default run-name is 'benchmark_last_metadata'\n"
 "   load-gen [options]               generate load on the cluster\n"
 "   listomapkeys <obj-name>          list the keys in the object map\n"
@@ -851,6 +851,7 @@ class RadosBencher : public ObjBencher {
   librados::NObjectIterator oi;
   bool iterator_valid;
   OpWriteDest write_destination;
+  bool forcefull;
 
 protected:
   int completions_init(int concurrentios) {
@@ -903,7 +904,8 @@ protected:
   }
 
   int aio_remove(const std::string& oid, int slot) {
-    return io_ctx.aio_remove(oid, completions[slot]);
+    int flags = forcefull ? CEPH_OSD_FLAG_FULL_FORCE : 0;
+    return io_ctx.aio_remove(oid, completions[slot], flags);
   }
 
   int sync_read(const std::string& oid, bufferlist& bl, size_t len) {
@@ -914,7 +916,8 @@ protected:
   }
 
   int sync_remove(const std::string& oid) {
-    return io_ctx.remove(oid);
+    int flags = forcefull ? CEPH_OSD_FLAG_FULL_FORCE : 0;
+    return io_ctx.remove(oid, flags);
   }
 
   bool completion_is_done(int slot) {
@@ -958,8 +961,9 @@ protected:
   }
 
 public:
-  RadosBencher(CephContext *cct_, librados::Rados& _r, librados::IoCtx& _i)
-    : ObjBencher(cct_), completions(NULL), rados(_r), io_ctx(_i), iterator_valid(false), write_destination(OP_WRITE_DEST_OBJ) {}
+  RadosBencher(CephContext *cct_, librados::Rados& _r, librados::IoCtx& _i, bool forcefull)
+    : ObjBencher(cct_), completions(NULL), rados(_r), io_ctx(_i), iterator_valid(false),
+      write_destination(OP_WRITE_DEST_OBJ), forcefull(forcefull) {}
   ~RadosBencher() { }
 
   void set_write_destination(OpWriteDest dest) {
@@ -2662,7 +2666,7 @@ static int rados_tool_common(const std::map < std::string, std::string > &opts,
       goto out;
     }
     io_ctx.set_namespace(all_nspaces);
-    RadosBencher bencher(g_ceph_context, rados, io_ctx);
+    RadosBencher bencher(g_ceph_context, rados, io_ctx, forcefull);
     ret = bencher.clean_up_slow("", concurrent_ios);
     if (ret >= 0) {
       cout << "successfully purged pool " << nargs[1] << std::endl;
@@ -2788,7 +2792,7 @@ static int rados_tool_common(const std::map < std::string, std::string > &opts,
       ret = -EINVAL;
       goto out;
     }
-    RadosBencher bencher(g_ceph_context, rados, io_ctx);
+    RadosBencher bencher(g_ceph_context, rados, io_ctx, forcefull);
     bencher.set_show_time(show_time);
     bencher.set_write_destination(static_cast<OpWriteDest>(bench_write_dest));
 
@@ -2818,7 +2822,7 @@ static int rados_tool_common(const std::map < std::string, std::string > &opts,
       usage_exit();
     if (wildcard)
       io_ctx.set_namespace(all_nspaces);
-    RadosBencher bencher(g_ceph_context, rados, io_ctx);
+    RadosBencher bencher(g_ceph_context, rados, io_ctx, forcefull);
     ret = bencher.clean_up(prefix, concurrent_ios, run_name);
     if (ret != 0)
       cerr << "error during cleanup: " << ret << std::endl;
