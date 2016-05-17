@@ -1677,16 +1677,17 @@ void ReplicatedPG::do_op(OpRequestRef& op)
   // which there is no reason to discard because they bypass all full
   // checks anyway.
   // FIXME: we exclude mds writes for now.
-  if (!(m->get_source().is_mds() || m->has_flag(CEPH_OSD_FLAG_FULL_FORCE)) &&
-      info.history.last_epoch_marked_full > m->get_map_epoch()) {
-    dout(10) << __func__ << " discarding op sent before full " << m << " "
-	     << *m << dendl;
-    return;
-  }
-  if (!m->get_source().is_mds() && osd->check_failsafe_full()) {
-    dout(10) << __func__ << " fail-safe full check failed, dropping request"
-	     << dendl;
-    return;
+  if (!(m->get_source().is_mds() || m->has_flag(CEPH_OSD_FLAG_FULL_FORCE))) {
+    if (info.history.last_epoch_marked_full > m->get_map_epoch()) {
+      dout(10) << __func__ << " discarding op sent before full " << m << " "
+	       << *m << dendl;
+      return;
+    }
+    if (osd->check_failsafe_full()) {
+      dout(10) << __func__ << " fail-safe full check failed, dropping request"
+	       << dendl;
+      return;
+    }
   }
   int64_t poolid = get_pgid().pool();
   if (op->may_write()) {
