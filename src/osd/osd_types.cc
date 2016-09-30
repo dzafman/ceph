@@ -5085,7 +5085,7 @@ void ScrubMap::encode(bufferlist& bl) const
 
 void ScrubMap::decode(bufferlist::iterator& bl, int64_t pool)
 {
-  DECODE_START_LEGACY_COMPAT_LEN(3, 2, 2, bl);
+  DECODE_START_LEGACY_COMPAT_LEN(3, 3, 3, bl);
   ::decode(objects, bl);
   {
     map<string,string> attrs;  // deprecated
@@ -5096,20 +5096,6 @@ void ScrubMap::decode(bufferlist::iterator& bl, int64_t pool)
   ::decode(valid_through, bl);
   ::decode(incr_since, bl);
   DECODE_FINISH(bl);
-
-  // handle hobject_t upgrade
-  if (struct_v < 3) {
-    map<hobject_t, object, hobject_t::BitwiseComparator> tmp;
-    tmp.swap(objects);
-    for (map<hobject_t, object, hobject_t::BitwiseComparator>::iterator i = tmp.begin();
-	 i != tmp.end();
-	 ++i) {
-      hobject_t first(i->first);
-      if (!first.is_max() && first.pool == -1)
-	first.pool = pool;
-      objects[first] = i->second;
-    }
-  }
 }
 
 void ScrubMap::dump(Formatter *f) const
