@@ -208,7 +208,6 @@ class FuseStore;
 class OSDMap;
 class MLog;
 class MClass;
-class MOSDPGMissing;
 class Objecter;
 
 class Watch;
