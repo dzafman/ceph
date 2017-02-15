@@ -1381,3 +1381,41 @@ int DBObjectMap::rename(const ghobject_t &from,
 
   return db->submit_transaction(t);
 }
+
+int DBObjectMap::corrupt()
+{
+  map<string, bufferlist> complete;
+  bufferlist bl;
+  string end("d");
+  bl.append(bufferptr(end.c_str(), end.size() + 1));
+  complete.insert(make_pair(string("b"), bl));
+  end = "c";
+  complete.insert(make_pair(string("a"), bl));
+
+  KeyValueDB::Transaction t = db->get_transaction();
+  KeyValueDB::Iterator iter = db->get_iterator(HOBJECT_TO_SEQ);
+  for (iter->seek_to_first(); iter->valid(); iter->next()) {
+    bufferlist bl = iter->value();
+    bufferlist::iterator bliter = bl.begin();
+    _Header header;
+    header.decode(bliter);
+    t->set(USER_PREFIX + header_key(header.seq) + COMPLETE_PREFIX, complete);
+
+    while (header.parent) {
+      set<string> to_get;
+      map<string, bufferlist> got;
+      to_get.insert(HEADER_KEY);
+      db->get(sys_parent_prefix(header), to_get, &got);
+      if (got.empty()) {
+	break;
+      } else {
+	bl = got.begin()->second;
+        bufferlist::iterator bliter = bl.begin();
+        header.decode(bliter);
+        t->set(USER_PREFIX + header_key(header.seq) + COMPLETE_PREFIX, complete);
+      }
+    }
+  }
+  db->submit_transaction(t);
+  return 0;
+}

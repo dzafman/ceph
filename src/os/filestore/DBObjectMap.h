@@ -239,6 +239,8 @@ public:
   int list_object_headers(vector<_Header> *out ///< [out] headers
     );
 
+  int corrupt();
+
   ObjectMapIterator get_iterator(const ghobject_t &oid);
 
   static const string USER_PREFIX;

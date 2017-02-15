@@ -181,6 +181,12 @@ int main(int argc, char **argv) {
     }
     for (auto i : headers)
       std::cout << i << std::endl;
+  } else if (cmd == "corrupt") {
+    r = omap.corrupt();
+    if (r < 0) {
+      r = 1;
+      goto done;
+    }
   } else {
     std::cerr << "Did not recognize command " << cmd << std::endl;
     r = 1;
