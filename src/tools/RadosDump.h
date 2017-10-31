@@ -154,6 +154,8 @@ struct pg_begin {
   }
 };
 
+ostream& operator<<(ostream& out, const pg_begin& pgb);
+
 struct object_begin {
   ghobject_t hoid;
 
@@ -192,6 +194,8 @@ struct object_begin {
   }
 };
 
+ostream& operator<<(ostream& out, const object_begin& ob);
+
 struct data_section {
   uint64_t offset;
   uint64_t len;
@@ -215,6 +219,8 @@ struct data_section {
     DECODE_FINISH(bl);
   }
 };
+
+ostream& operator<<(ostream& out, const data_section& ds);
 
 struct attr_section {
   map<string,bufferlist> data;
@@ -243,6 +249,8 @@ struct attr_section {
   }
 };
 
+ostream& operator<<(ostream& out, const attr_section& as);
+
 struct omap_hdr_section {
   bufferlist hdr;
   explicit omap_hdr_section(bufferlist hdr) : hdr(hdr) { }
@@ -259,6 +267,8 @@ struct omap_hdr_section {
     DECODE_FINISH(bl);
   }
 };
+
+ostream& operator<<(ostream& out, const omap_hdr_section& ohs);
 
 struct omap_section {
   map<string, bufferlist> omap;
@@ -277,6 +287,8 @@ struct omap_section {
     DECODE_FINISH(bl);
   }
 };
+
+ostream& operator<<(ostream& out, const omap_section& os);
 
 struct metadata_section {
   // struct_ver is the on-disk version of original pg
@@ -337,6 +349,8 @@ struct metadata_section {
     DECODE_FINISH(bl);
   }
 };
+
+ostream& operator<<(ostream& out, const metadata_section& ms);
 
 /**
  * Superclass for classes that will need to handle a serialized RADOS

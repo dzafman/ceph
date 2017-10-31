@@ -12,6 +12,7 @@
  *
  */
 
+#include "include/util.h"
 #include "RadosDump.h"
 
 int RadosDump::read_super()
@@ -166,3 +167,74 @@ void RadosDump::write_super()
   assert(super_header::FIXED_LENGTH == superbl.length());
   superbl.write_fd(file_fd);
 }
+
+ostream& operator<<(ostream& out, const pg_begin& pgb)
+{
+  out << "pgid " << pgb.pgid << " super block " << pgb.superblock;
+  return out;
+}
+
+ostream& operator<<(ostream& out, const object_begin& ob)
+{
+  out << "oid " << ob.hoid << " info " << ob.oi;
+  return out;
+}
+
+ostream& operator<<(ostream& out, const data_section& ds)
+{
+  out << "\toffset " << ds.offset << " len " << ds.len;
+  // For now don't put put ds.databl
+  return out;
+}
+ostream& operator<<(ostream& out, const attr_section& as)
+{
+  //map<string,bufferlist> data;
+  int first = true;
+  for (auto a : as.data) {
+    if (first) {
+      out << "attr keys: ";
+      first = false;
+    } else {
+      out << ", ";
+    }
+    out << a.first;
+  }
+  return out;
+}
+
+ostream& operator<<(ostream& out, const omap_hdr_section& ohs)
+{
+  string hdr = ohs.hdr.to_str();
+  out << "omap_header: " << cleanbin(hdr);
+  return out;
+}
+
+ostream& operator<<(ostream& out, const omap_section& os)
+{
+  int first = true;
+  for (auto o : os.omap) {
+    if (first) {
+      out << "omap keys: ";
+      first = false;
+    } else {
+      out << ", ";
+    }
+    out << o.first;
+  }
+  return out;
+}
+
+ostream& operator<<(ostream& out, const metadata_section& ms)
+{
+  //__u8 struct_ver;  // for reference
+  //epoch_t map_epoch;
+  //pg_info_t info;
+  //pg_log_t log;
+  //map<epoch_t,pg_interval_t> past_intervals;
+  //OSDMap osdmap;
+  //bufferlist osdmap_bl;  // Used in lieu of encoding osdmap due to crc checking
+  //map<eversion_t, hobject_t> divergent_priors;
+
+  out << "metadata: ver " << ms.struct_ver << " epoch " << ms.map_epoch << " info " << ms.info;
+  return out;
+} 

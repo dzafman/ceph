@@ -824,6 +824,16 @@ int get_data(ObjectStore *store, coll_t coll, ghobject_t hoid,
   return 0;
 }
 
+int dump_data(bufferlist &bl)
+{
+  bufferlist::iterator ebliter = bl.begin();
+  data_section ds;
+  ds.decode(ebliter);
+
+  cout << ds << std::endl;
+  return 0;
+}
+
 int get_attrs(ObjectStore *store, coll_t coll, ghobject_t hoid,
     ObjectStore::Transaction *t, bufferlist &bl,
     OSDriver &driver, SnapMapper &snap_mapper)
@@ -855,6 +865,17 @@ int get_attrs(ObjectStore *store, coll_t coll, ghobject_t hoid,
   return 0;
 }
 
+int dump_attrs(bufferlist &bl)
+{
+  bufferlist::iterator ebliter = bl.begin();
+  attr_section as;
+  as.decode(ebliter);
+
+  cout << as << std::endl;
+
+  return 0;
+}
+
 int get_omap_hdr(ObjectStore *store, coll_t coll, ghobject_t hoid,
     ObjectStore::Transaction *t, bufferlist &bl)
 {
@@ -869,6 +890,16 @@ int get_omap_hdr(ObjectStore *store, coll_t coll, ghobject_t hoid,
   return 0;
 }
 
+int dump_omap_hdr(bufferlist &bl)
+{
+  bufferlist::iterator ebliter = bl.begin();
+  omap_hdr_section oh;
+  oh.decode(ebliter);
+
+  cout << oh << std::endl;
+  return 0;
+}
+
 int get_omap(ObjectStore *store, coll_t coll, ghobject_t hoid,
     ObjectStore::Transaction *t, bufferlist &bl)
 {
@@ -879,6 +910,17 @@ int get_omap(ObjectStore *store, coll_t coll, ghobject_t hoid,
   if (debug)
     cerr << "\tomap: size " << os.omap.size() << std::endl;
   t->omap_setkeys(coll, hoid, os.omap);
+  return 0;
+}
+
+int dump_omap(bufferlist &bl)
+{
+  bufferlist::iterator ebliter = bl.begin();
+  omap_section os;
+  os.decode(ebliter);
+
+  cout << os << std::endl;
+
   return 0;
 }
 
@@ -980,6 +1022,92 @@ int ObjectStoreTool::get_object(ObjectStore *store, coll_t coll,
   }
   if (!dry_run)
     store->apply_transaction(&osr, std::move(*t));
+  return 0;
+}
+
+int ObjectStoreTool::dump_object(bufferlist &bl)
+{
+  bufferlist::iterator ebliter = bl.begin();
+  object_begin ob;
+  ob.decode(ebliter);
+
+  if (ob.hoid.hobj.is_temp()) {
+    cerr << "ERROR: Export contains temporary object '" << ob.hoid << "'" << std::endl;
+    return -EFAULT;
+  }
+#if 0
+  assert(g_ceph_context);
+  if (ob.hoid.hobj.nspace != g_ceph_context->_conf->osd_hit_set_namespace) {
+    object_t oid = ob.hoid.hobj.oid;
+    object_locator_t loc(ob.hoid.hobj);
+    pg_t raw_pgid = curmap.object_locator_to_pg(oid, loc);
+    pg_t pgid = curmap.raw_pg_to_pg(raw_pgid);
+
+    spg_t coll_pgid;
+    if (coll.is_pg(&coll_pgid) == false) {
+      cerr << "INTERNAL ERROR: Bad collection during import" << std::endl;
+      return -EFAULT;
+    }
+    if (coll_pgid.shard != ob.hoid.shard_id) {
+      cerr << "INTERNAL ERROR: Importing shard " << coll_pgid.shard
+        << " but object shard is " << ob.hoid.shard_id << std::endl;
+      return -EFAULT;
+    }
+
+    if (coll_pgid.pgid != pgid) {
+      cerr << "Skipping object '" << ob.hoid << "' which belongs in pg " << pgid << std::endl;
+      *skipped_objects = true;
+      skip_object(bl);
+      return 0;
+    }
+  }
+#endif
+
+  cout << ob << std::endl;
+
+  bufferlist ebl;
+  bool done = false;
+  while(!done) {
+    sectiontype_t type;
+    int ret = read_section(&type, &ebl);
+    if (ret)
+      return ret;
+
+    //cout << "\tdo_object: Section type " << hex << type << dec << std::endl;
+    //cout << "\t\tsection size " << ebl.length() << std::endl;
+    if (type >= END_OF_TYPES) {
+      cout << "Skipping unknown object section type" << std::endl;
+      continue;
+    }
+    switch(type) {
+    case TYPE_DATA:
+      if (dry_run) break;
+      ret = dump_data(ebl);
+      if (ret) return ret;
+      break;
+    case TYPE_ATTRS:
+      if (dry_run) break;
+      ret = dump_attrs(ebl);
+      if (ret) return ret;
+      break;
+    case TYPE_OMAP_HDR:
+      if (dry_run) break;
+      ret = dump_omap_hdr(ebl);
+      if (ret) return ret;
+      break;
+    case TYPE_OMAP:
+      if (dry_run) break;
+      ret = dump_omap(ebl);
+      if (ret) return ret;
+      break;
+    case TYPE_OBJECT_END:
+      done = true;
+      break;
+    default:
+      cerr << "Unknown section type " << type << std::endl;
+      return -EFAULT;
+    }
+  }
   return 0;
 }
 
@@ -1111,6 +1239,61 @@ int get_pg_metadata(ObjectStore *store, bufferlist &bl, metadata_section &ms,
     cerr << "Changing pg epoch " << ms.map_epoch << " to " << sb.current_epoch << std::endl;
 
   ms.map_epoch = sb.current_epoch;
+
+  return 0;
+}
+
+int dump_pg_metadata(bufferlist &bl)
+{
+  metadata_section ms;
+  bufferlist::iterator ebliter = bl.begin();
+  ms.decode(ebliter);
+
+  cout << ms << std::endl;
+
+#if SKIP
+  Formatter *formatter = new JSONFormatter(true);
+  cout << "export pgid " << old_pgid << std::endl;
+  cout << "struct_v " << (int)ms.struct_ver << std::endl;
+  cout << "map epoch " << ms.map_epoch << std::endl;
+
+  formatter->open_object_section("importing OSDMap");
+  ms.osdmap.dump(formatter);
+  formatter->close_section();
+  formatter->flush(cout);
+  cout << std::endl;
+
+  cout << "osd current epoch " << sb.current_epoch << std::endl;
+  formatter->open_object_section("current OSDMap");
+  curmap.dump(formatter);
+  formatter->close_section();
+  formatter->flush(cout);
+  cout << std::endl;
+
+  formatter->open_object_section("info");
+  ms.info.dump(formatter);
+  formatter->close_section();
+  formatter->flush(cout);
+  cout << std::endl;
+
+  formatter->open_object_section("log");
+  ms.log.dump(formatter);
+  formatter->close_section();
+  formatter->flush(cout);
+  cout << std::endl;
+
+  formatter->open_array_section("divergent_priors");
+  for (map<eversion_t, hobject_t>::iterator it = ms.divergent_priors.begin();
+       it != ms.divergent_priors.end(); ++ it) {
+      formatter->open_object_section("item");
+      formatter->dump_stream("eversion") << it->first;
+      formatter->dump_stream("hobject") << it->second;
+      formatter->close_section();
+  }
+  formatter->close_section();
+  formatter->flush(cout);
+  cout << std::endl;
+#endif
 
   return 0;
 }
@@ -1382,6 +1565,169 @@ int ObjectStoreTool::do_import(ObjectStore *store, OSDSuperblock& sb,
     remove.insert("_remove");
     t.omap_rmkeys(coll, pgid.make_pgmeta_oid(), remove);
     store->apply_transaction(&osr, std::move(t));
+  }
+
+  return 0;
+}
+
+int ObjectStoreTool::dump_import()
+{
+  bufferlist ebl;
+  pg_info_t info;
+#if 0
+  PGLog::IndexedLog log;
+  bool skipped_objects = false;
+#endif
+
+  int ret = read_super();
+  if (ret)
+    return ret;
+
+#if 0
+  if (sh.magic != super_header::super_magic) {
+    cerr << "Invalid magic number" << std::endl;
+    return -EFAULT;
+  }
+
+  if (sh.version > super_header::super_ver) {
+    cerr << "Can't handle export format version=" << sh.version << std::endl;
+    return -EINVAL;
+  }
+#endif
+
+  //First section must be TYPE_PG_BEGIN
+  sectiontype_t type;
+  ret = read_section(&type, &ebl);
+  if (ret)
+    return ret;
+
+#if 0
+  if (type == TYPE_POOL_BEGIN) {
+    cerr << "Pool exports cannot be imported into a PG" << std::endl;
+    return -EINVAL;
+  }
+#endif
+  if (type != TYPE_PG_BEGIN) {
+    cerr << "Invalid first section type " << type << std::endl;
+    return -EFAULT;
+  }
+
+  bufferlist::iterator ebliter = ebl.begin();
+  pg_begin pgb;
+  pgb.decode(ebliter);
+  spg_t pgid = pgb.pgid;
+  spg_t orig_pgid = pgid;
+
+  cout << "bg_begin " << pgb << std::endl;
+
+#if 0
+  if (pgidstr.length()) {
+    spg_t user_pgid;
+
+    bool ok = user_pgid.parse(pgidstr.c_str());
+    // This succeeded in main() already
+    assert(ok);
+    if (pgid != user_pgid) {
+      if (pgid.pool() != user_pgid.pool()) {
+        cerr << "Can't specify a different pgid pool, must be " << pgid.pool() << std::endl;
+        return -EINVAL;
+      }
+      if (pgid.is_no_shard() && !user_pgid.is_no_shard()) {
+        cerr << "Can't specify a sharded pgid with a non-sharded export" << std::endl;
+        return -EINVAL;
+      }
+      // Get shard from export information if not specified
+      if (!pgid.is_no_shard() && user_pgid.is_no_shard()) {
+        user_pgid.shard = pgid.shard;
+      }
+      if (pgid.shard != user_pgid.shard) {
+        cerr << "Can't specify a different shard, must be " << pgid.shard << std::endl;
+        return -EINVAL;
+      }
+      pgid = user_pgid;
+    }
+  }
+
+  if (!pgb.superblock.cluster_fsid.is_zero()
+      && pgb.superblock.cluster_fsid != sb.cluster_fsid) {
+    cerr << "Export came from different cluster with fsid "
+         << pgb.superblock.cluster_fsid << std::endl;
+    return -EINVAL;
+  }
+
+  // Special case: Old export has SHARDS incompat feature on replicated pg, remove it
+  if (pgid.is_no_shard())
+    pgb.superblock.compat_features.incompat.remove(CEPH_OSD_FEATURE_INCOMPAT_SHARDS);
+
+  if (sb.compat_features.compare(pgb.superblock.compat_features) == -1) {
+    CompatSet unsupported = sb.compat_features.unsupported(pgb.superblock.compat_features);
+
+    cout << "Export has incompatible features set " << unsupported << std::endl;
+  }
+
+  // Don't import if pool no longer exists
+  OSDMap curmap;
+  bufferlist bl;
+  ret = get_osdmap(store, sb.current_epoch, curmap, bl);
+  if (ret) {
+    cerr << "Can't find local OSDMap" << std::endl;
+    return ret;
+  }
+  if (!curmap.have_pg_pool(pgid.pgid.m_pool)) {
+    cerr << "Pool " << pgid.pgid.m_pool << " no longer exists" << std::endl;
+    // Special exit code for this error, used by test code
+    return 10;  // Positive return means exit status
+  }
+
+  ghobject_t pgmeta_oid = pgid.make_pgmeta_oid();
+  log_oid = OSD::make_pg_log_oid(pgid);
+  biginfo_oid = OSD::make_pg_biginfo_oid(pgid);
+
+  //Check for PG already present.
+  coll_t coll(pgid);
+  if (store->collection_exists(coll)) {
+    cerr << "pgid " << pgid << " already exists" << std::endl;
+    return -EEXIST;
+  }
+#endif
+
+  bool done = false;
+  bool found_metadata = false;
+  while(!done) {
+    ret = read_section(&type, &ebl);
+    if (ret)
+      return ret;
+
+    //cout << "do_import: Section type " << hex << type << dec << std::endl;
+    if (type >= END_OF_TYPES) {
+      cout << "Skipping unknown section type" << std::endl;
+      continue;
+    }
+    switch(type) {
+    case TYPE_OBJECT_BEGIN:
+      ret = dump_object(ebl);
+      if (ret) return ret;
+      break;
+    case TYPE_PG_METADATA:
+      ret = dump_pg_metadata(ebl);
+      if (ret) return ret;
+      found_metadata = true;
+      break;
+    case TYPE_PG_END:
+      done = true;
+      break;
+    default:
+      cerr << "Unknown section type " << type << std::endl;
+      return -EFAULT;
+    }
+  }
+
+  if (!found_metadata) {
+    cerr << "Missing metadata section" << std::endl;
+  }
+
+  if (!done) {
+    cerr << "No end marker seen" << std::endl;
   }
 
   return 0;
@@ -2273,7 +2619,7 @@ int main(int argc, char **argv)
      "Pool name, mandatory for apply-layout-settings if --pgid is not specified")
     ("op", po::value<string>(&op),
      "Arg is one of [info, log, remove, mkfs, fsck, fuse, export, import, list, fix-lost, list-pgs, rm-past-intervals, dump-journal, dump-super, meta-list, "
-     "get-osdmap, set-osdmap, get-inc-osdmap, set-inc-osdmap, mark-complete, apply-layout-settings, update-mon-db]")
+     "get-osdmap, set-osdmap, get-inc-osdmap, set-inc-osdmap, mark-complete, apply-layout-settings, update-mon-db, dump-import]")
     ("epoch", po::value<unsigned>(&epoch),
      "epoch# for get-osdmap and get-inc-osdmap, the current epoch in use if not specified")
     ("file", po::value<string>(&file),
@@ -2378,7 +2724,8 @@ int main(int argc, char **argv)
     type = "filestore";
   }
   if (!vm.count("data-path") &&
-     !(op == "dump-journal" && type == "filestore")) {
+     !(op == "dump-journal" && type == "filestore")
+     && op != "dump-import") {
     cerr << "Must provide --data-path" << std::endl;
     usage(desc);
     myexit(1);
@@ -2426,7 +2773,7 @@ int main(int argc, char **argv)
     } else {
       file_fd = open(file.c_str(), O_WRONLY|O_CREAT|O_TRUNC, 0666);
     }
-  } else if (op == "import" || op == "set-osdmap" || op == "set-inc-osdmap") {
+  } else if (op == "import" || op == "set-osdmap" || op == "set-inc-osdmap" || op == "dump-import") {
     if (!vm.count("file") || file == "-") {
       if (isatty(STDIN_FILENO)) {
         cerr << "stdin is a tty and no --file filename specified" << std::endl;
@@ -2488,6 +2835,22 @@ int main(int argc, char **argv)
     }
     formatter->flush(cout);
     myexit(0);
+  }
+
+  if (op == "dump-import") {
+
+   int ret;
+    try {
+      ret = tool.dump_import();
+    }
+    catch (const buffer::error &e) {
+      cerr << "dump-import threw exception error " << e.what() << std::endl;
+      ret = -EFAULT;
+    }
+    if (ret == -EFAULT) {
+      cerr << "Corrupt input for import" << std::endl;
+    }
+    myexit(ret);
   }
 
   //Verify that data-path really exists
