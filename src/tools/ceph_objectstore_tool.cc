@@ -3105,7 +3105,7 @@ int main(int argc, char **argv)
   // The ops which require --pgid option are checked here and
   // mentioned in the usage for --pgid.
   if ((op == "info" || op == "log" || op == "remove" || op == "export"
-      || op == "export-remove" || op == "mark-complete") &&
+      || op == "export-remove" || op == "mark-complete" || op == "set-dne") &&
       pgidstr.length() == 0) {
     cerr << "Must provide pgid" << std::endl;
     usage(desc);
@@ -3305,7 +3305,7 @@ int main(int argc, char **argv)
 
   // If not an object command nor any of the ops handled below, then output this usage
   // before complaining about a bad pgid
-  if (!vm.count("objcmd") && op != "export" && op != "export-remove" && op != "info" && op != "log" && op != "mark-complete") {
+  if (!vm.count("objcmd") && op != "export" && op != "export-remove" && op != "info" && op != "log" && op != "mark-complete" && op != "set-dne") {
     cerr << "Must provide --op (info, log, remove, mkfs, fsck, repair, export, export-remove, import, list, fix-lost, list-pgs, dump-journal, dump-super, meta-list, "
       "get-osdmap, set-osdmap, get-inc-osdmap, set-inc-osdmap, mark-complete)"
 	 << std::endl;
@@ -3631,6 +3631,29 @@ int main(int argc, char **argv)
 	fs->apply_transaction(osr, std::move(*t));
       }
       cout << "Marking complete succeeded" << std::endl;
+    } else if (op == "set-dne") {
+      ObjectStore::Transaction tran;
+      ObjectStore::Transaction *t = &tran;
+
+      if (struct_ver < PG::get_compat_struct_v()) {
+        cerr << "Can't set-dne, version mismatch " << (int)struct_ver
+	     << " (pg)  < compat " << (int)PG::get_compat_struct_v() << " (tool)"
+	     << std::endl;
+	ret = 1;
+	goto out;
+      }
+
+      cout << "Setting dne" << std::endl;
+
+      info.history.epoch_created = 0;
+
+      if (!dry_run) {
+	ret = write_info(*t, map_epoch, info, past_intervals);
+	if (ret != 0)
+	  goto out;
+	fs->apply_transaction(osr, std::move(*t));
+      }
+      cout << "set-dne succeeded" << std::endl;
     } else {
       assert(!"Should have already checked for valid --op");
     }
