@@ -5591,8 +5591,8 @@ void PG::start_peering_interval(
     set_role(-1);
 
   // did acting, up, primary|acker change?
-  if (!lastmap) {
-    dout(10) << " no lastmap" << dendl;
+  if (!lastmap || info.dne()) {
+    dout(10) << __func__ << (!lastmap ? " no lastmap" : "" ) << (info.dne() ? " dne pg" : "") << dendl;
     dirty_info = true;
     dirty_big_info = true;
     info.history.same_interval_since = osdmap->get_epoch();
