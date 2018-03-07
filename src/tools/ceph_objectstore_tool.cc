@@ -501,12 +501,13 @@ int write_pg(ObjectStore::Transaction &t, epoch_t epoch, pg_info_t &info,
 
 int do_trim_pg_log(ObjectStore *store, const coll_t &coll,
 		   pg_info_t &info, const spg_t &pgid,
-		   ObjectStore::Sequencer &osr, epoch_t map_epoch,
+		   epoch_t map_epoch,
 		   PastIntervals &past_intervals)
 {
   ghobject_t oid = pgid.make_pgmeta_oid();
   struct stat st;
-  int r = store->stat(coll, oid, &st);
+  auto ch = store->open_collection(coll);
+  int r = store->stat(ch, oid, &st);
   assert(r == 0);
   assert(st.st_size == 0);
 
@@ -529,7 +530,7 @@ int do_trim_pg_log(ObjectStore *store, const coll_t &coll,
     // gather keys so we can delete them in a batch without
     // affecting the iterator
     set<string> keys_to_trim;
-    ObjectMap::ObjectMapIterator p = store->get_omap_iterator(coll, oid);
+    ObjectMap::ObjectMapIterator p = store->get_omap_iterator(ch, oid);
     if (!p)
       break;
     for (p->seek_to_first(); p->valid(); p->next(false)) {
@@ -576,10 +577,7 @@ int do_trim_pg_log(ObjectStore *store, const coll_t &coll,
     if (!dry_run && !keys_to_trim.empty()) {
       ObjectStore::Transaction t;
       t.omap_rmkeys(coll, oid, keys_to_trim);
-      int r = store->apply_transaction(&osr, std::move(t));
-      if (r) {
-	cerr << "Error trimming logs " << cpp_strerror(r) << std::endl;
-      }
+      store->queue_transaction(ch, std::move(t));
     }
   }
 
@@ -590,9 +588,7 @@ int do_trim_pg_log(ObjectStore *store, const coll_t &coll,
     int ret = write_info(t, map_epoch, info, past_intervals);
     if (ret)
       return ret;
-    ret = store->apply_transaction(&osr, std::move(t));
-    if (ret) {
-      cerr << "Error updating pg info " << cpp_strerror(ret) << std::endl;
+    store->queue_transaction(ch, std::move(t));
   }
 
   // compact the db since we just removed a bunch of data
@@ -4095,7 +4091,7 @@ int main(int argc, char **argv)
       }
       cout << "Marking complete succeeded" << std::endl;
     } else if (op == "trim-pg-log") {
-      ret = do_trim_pg_log(fs, coll, info, pgid, *osr,
+      ret = do_trim_pg_log(fs, coll, info, pgid,
 			   map_epoch, past_intervals);
       if (ret < 0) {
 	cerr << "Error trimming pg log: " << cpp_strerror(ret) << std::endl;
