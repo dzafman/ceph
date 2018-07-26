@@ -1019,6 +1019,7 @@ void PGBackend::be_compare_scrubmaps(
 	  fix_digest = true;
 	  // Clear the error
 	  shard_map[j->first].clear_data_digest_mismatch_info();
+	  errorstream << pgid << " : soid " << *k << " repairing object info data_digest" << "\n";
 	}
 	// Some errors might have already been set in be_select_auth_object()
 	if (shard_map[j->first].errors != 0) {
