@@ -691,10 +691,6 @@ void OSDMonitor::create_pending()
 
   dout(10) << "create_pending e " << pending_inc.epoch << dendl;
 
-  // clean up pg_temp, primary_temp
-  OSDMap::clean_temps(cct, osdmap, &pending_inc);
-  dout(10) << "create_pending  did clean_temps" << dendl;
-
   // safety checks (this shouldn't really happen)
   {
     if (osdmap.backfillfull_ratio <= 0) {
@@ -1065,6 +1061,12 @@ void OSDMonitor::encode_pending(MonitorDBStore::TransactionRef t)
     tmp.deepish_copy_from(osdmap);
     tmp.apply_incremental(pending_inc);
 
+    // clean pg_temp mappings
+    OSDMap::clean_temps(cct, osdmap, tmp, &pending_inc);
+
+    // clean inappropriate pg_upmap/pg_upmap_items (if any)
+    osdmap.maybe_remove_pg_upmaps(cct, osdmap, tmp, &pending_inc);
+
     // remove any legacy osdmap nearfull/full flags
     {
       if (tmp.test_flag(CEPH_OSDMAP_FULL | CEPH_OSDMAP_NEARFULL)) {
@@ -1357,9 +1359,6 @@ void OSDMonitor::encode_pending(MonitorDBStore::TransactionRef t)
       dout(2) << " osd." << i->first << " WEIGHT " << hex << i->second << dec << dendl;
     }
   }
-
-  // clean inappropriate pg_upmap/pg_upmap_items (if any)
-  osdmap.maybe_remove_pg_upmaps(cct, osdmap, &pending_inc);
 
   // features for osdmap and its incremental
   uint64_t features;
