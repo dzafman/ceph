@@ -5584,7 +5584,7 @@ int PrimaryLogPG::do_sparse_read(OpContext *ctx, OSDOp& osd_op) {
           << " full-object read crc 0x" << crc
           << " != expected 0x" << oi.data_digest
           << std::dec << " on " << soid;
-        r = rep_repair_primary_object(soid, ctx->op);
+        r = rep_repair_primary_object(soid, ctx);
 	if (r < 0) {
 	  return r;
 	}
