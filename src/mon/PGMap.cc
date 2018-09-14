@@ -2947,22 +2947,34 @@ void PGMap::get_health_checks(
   }
 
   // SCRUBS_OVERDUE
-  {
-    if (cct->_conf->mon_warn_pg_scrubs_overdue_ratio) {
-      float ratio = cct->_conf->mon_warn_pg_scrubs_overdue_ratio;
-      if (ratio >= 1)
-        ratio /= 100;
-      uint32_t overdue = get_osd_sum().total_scrubs_overdue;
-      uint32_t threshold = (sum_pg_up / num_in) * ratio;
-      if (overdue > threshold) {
-        ostringstream ss;
-        ss << overdue << " scrub(s) overdue";
-        checks->add("OSD_ALL_SCRUBS_OVERDUE", HEALTH_WARN, ss.str());
+  if (cct->_conf->mon_warn_pg_scrubs_overdue_ratio) {
+    // Map osd to overdue
+    map<int, uint32_t> overdue_map;
+    uint32_t total_overdue = 0;
+    now = ceph_clock_now();
+    for (const auto& i : pg_stat) {
+      const auto &pg_info = i.second;
+      if (pg_info.last_deep_scrub_stamp + cct->_conf->osd_deep_scrub_interval < now ||
+          pg_info.last_scrub_stamp + cct->_conf->osd_scrub_max_interval < now) {
+        ++total_overdue;
+        overdue_map[pg_info.acting_primary]++;
       }
+    }
+    float ratio = cct->_conf->mon_warn_pg_scrubs_overdue_ratio;
+    if (ratio >= 1)
+      ratio /= 100;
+    uint32_t threshold = (sum_pg_up / num_in) * ratio;
+    if (total_overdue > threshold) {
       ostringstream ss;
-      for (auto& a: osd_stat) {
-        uint32_t overdue = a.second.sched_scrubs_overdue;
-        uint32_t threshold = a.second.num_pgs * ratio;
+      ss << total_overdue << " scrub(s) overdue";
+      checks->add("OSD_ALL_SCRUBS_OVERDUE", HEALTH_WARN, ss.str());
+    }
+    ostringstream ss;
+    for (auto& a: overdue_map) {
+      auto osd_info = osd_stat.find(a.first);
+      if (osd_info != osd_stat.end()) {
+        uint32_t overdue = a.second;
+        uint32_t threshold = osd_info->second.num_pgs * ratio;
         if (overdue > threshold) {
           if (ss.str().length() == 0)
             ss << "Per osd scheduled scrub(s) overdue ";
@@ -2971,9 +2983,9 @@ void PGMap::get_health_checks(
           ss << "osd." << a.first << "(" << overdue << ")";
         }
       }
-      if (ss.str().length() != 0)
-        checks->add("OSD_SCHED_OSD_SCRUBS_OVERDUE", HEALTH_WARN, ss.str());
     }
+    if (ss.str().length() != 0)
+      checks->add("OSD_SCHED_OSD_SCRUBS_OVERDUE", HEALTH_WARN, ss.str());
   }
 
   // POOL_APP
