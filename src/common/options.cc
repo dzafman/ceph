@@ -1634,6 +1634,10 @@ std::vector<Option> get_global_options() {
     .set_default(0)
     .set_description(""),
 
+    Option("mon_warn_pg_scrubs_overdue_ratio", Option::TYPE_FLOAT, Option::LEVEL_ADVANCED)
+    .set_default(.25)
+    .set_description("Warn when this fraction of PGs have overdue scrubs."),
+
     Option("mon_scrub_interval", Option::TYPE_INT, Option::LEVEL_ADVANCED)
     .set_default(1_day)
     .set_description(""),
