@@ -5263,7 +5263,7 @@ void TestOpsSocketHook::test_ops(OSDService *service, ObjectStore *store,
       stamp -=  100.0;  // push back last scrub more for good measure
       pg->set_last_scrub_stamp(stamp);
       pg->reg_next_scrub();
-      ss << "ok";
+      ss << pgidstr << " set to last_scrub " << stamp << " ok";
     } else {
       ss << "Not primary";
     }
