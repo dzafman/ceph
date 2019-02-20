@@ -512,6 +512,228 @@ function TEST_backfill_pool_priority() {
     return $ERRORS
 }
 
+
+function TEST_backfill_priority_update() {
+    local dir=$1
+    local pools=10
+    local OSDS=5
+    local max_tries=10
+
+    run_mon $dir a || return 1
+    run_mgr $dir x || return 1
+    export CEPH_ARGS
+
+    for osd in $(seq 0 $(expr $OSDS - 1))
+    do
+      run_osd $dir $osd || return 1
+    done
+
+    for p in $(seq 1 $pools)
+    do
+      create_pool "${poolprefix}$p" 1 1
+      ceph osd pool set "${poolprefix}$p" size 2
+    done
+    sleep 5
+
+    wait_for_clean || return 1
+
+    ceph pg dump pgs
+
+    # Find 3 pools with a pg with the same primaries but second
+    # replica on another osd.
+    local PG1
+    local POOLNUM1
+    local pool1
+    local chk_osd1_1
+    local chk_osd1_2
+
+    local PG2
+    local POOLNUM2
+    local pool2
+    local chk_osd2
+
+    for p in $(seq 1 $pools)
+    do
+      ceph pg map ${p}.0 --format=json | jq '.acting[]' > $dir/acting
+      local test_osd1=$(head -1 $dir/acting)
+      local test_osd2=$(tail -1 $dir/acting)
+      if [ -z "$PG1" ];
+      then
+        PG1="${p}.0"
+        POOLNUM1=$p
+        pool1="${poolprefix}$p"
+        chk_osd1_1=$test_osd1
+        chk_osd1_2=$test_osd2
+      elif [ $chk_osd1_1 = $test_osd1 -a $chk_osd1_2 != $test_osd2 ];
+      then
+        PG2="${p}.0"
+        POOLNUM2=$p
+        pool2="${poolprefix}$p"
+        chk_osd2=$test_osd2
+        break
+      fi
+    done
+    rm -f $dir/acting
+
+    if [ "$pool2" = "" ];
+    then
+      echo "Failure to find appropirate PGs"
+      return 1
+    fi
+
+    for p in $(seq 1 $pools)
+    do
+      if [ $p != $POOLNUM1 -a $p != $POOLNUM2 ];
+      then
+        delete_pool ${poolprefix}$p
+      fi
+    done
+
+    ceph osd pool set $pool1 size 1
+    ceph osd pool set $pool2 size 1
+    wait_for_clean || return 1
+
+    dd if=/dev/urandom of=$dir/data bs=1M count=10
+    p=1
+    for pname in $pool1 $pool2 $pool3
+    do
+      for i in $(seq 1 $objects)
+      do
+	rados -p ${pname} put obj${i}-p${p} $dir/data
+      done
+      p=$(expr $p + 1)
+    done
+
+    local otherosd=$(get_not_primary $pool1 obj1-p1)
+
+    ceph pg dump pgs
+    ERRORS=0
+
+    ceph osd set nobackfill
+    ceph osd set noout
+
+    # Get pool1 to backfill
+    ceph osd pool set $pool1 size 2
+    sleep 2
+    # Get pool2 to backfill at the same priority
+    ceph osd pool set $pool2 size 2
+    sleep 2
+    flush_pg_stats || return 1
+
+    degraded_prio="$(expr $DEGRADED_PRIO + 1)"
+    CEPH_ARGS='' ceph --admin-daemon $(get_asok_path osd.${chk_osd1_1}) dump_reservations > $dir/out || return 1
+    cat $dir/out
+    ceph pg dump pgs
+
+    PRIO=$(cat $dir/out | jq "(.local_reservations.queues[].items[] | select(.item == \"${PG2}\")).prio")
+    if [ "$PRIO" != "$degraded_prio" ];
+    then
+      echo "The normal PG ${PG2} doesn't have prio $degraded_prio queued waiting"
+      ERRORS=$(expr $ERRORS + 1)
+    fi
+
+    # Using eval will strip double-quotes from item
+    eval ITEM=$(cat $dir/out | jq '.local_reservations.in_progress[0].item')
+    if [ "$ITEM" != ${PG1} ];
+    then
+      echo "The first PG $PG1 didn't become the in progress item"
+      ERRORS=$(expr $ERRORS + 1)
+    else
+      PRIO=$(cat $dir/out | jq '.local_reservations.in_progress[0].prio')
+      if [ "$PRIO" != "$degraded_prio" ];
+      then
+        echo "The first PG ${PG1} doesn't have prio $DEGRADED_PRIO"
+        ERRORS=$(expr $ERRORS + 1)
+      fi
+    fi
+
+    # Get pool2 to preempt pool1 with a higher priority
+    ceph osd pool set $pool2 size 3
+    sleep 2
+    flush_pg_stats || return 1
+
+    CEPH_ARGS='' ceph --admin-daemon $(get_asok_path osd.${chk_osd1_1}) dump_reservations > $dir/out || return 1
+    cat $dir/out
+    ceph pg dump pgs
+
+    PRIO=$(cat $dir/out | jq "(.local_reservations.queues[].items[] | select(.item == \"${PG1}\")).prio")
+    if [ "$PRIO" != "$degraded_prio" ];
+    then
+      echo "The normal PG ${PG1} doesn't have prio $degraded_prio queued waiting"
+      ERRORS=$(expr $ERRORS + 1)
+    fi
+
+    degraded_prio="$(expr $DEGRADED_PRIO + 2)"
+    # Using eval will strip double-quotes from item
+    eval ITEM=$(cat $dir/out | jq '.local_reservations.in_progress[0].item')
+    if [ "$ITEM" != ${PG2} ];
+    then
+      echo "The size 3 PG $PG2 didn't become the in progress item"
+      ERRORS=$(expr $ERRORS + 1)
+    else
+      PRIO=$(cat $dir/out | jq '.local_reservations.in_progress[0].prio')
+      if [ "$PRIO" != "$degraded_prio" ];
+      then
+        echo "The size 3 PG ${PG2} doesn't have prio $degraded_prio"
+        ERRORS=$(expr $ERRORS + 1)
+      fi
+    fi
+
+    # Get pool1 to preempt pool2
+    ceph osd pool set $pool1 size 4
+    sleep 2
+    flush_pg_stats || return 1
+
+    CEPH_ARGS='' ceph --admin-daemon $(get_asok_path osd.${chk_osd1_1}) dump_reservations > $dir/out || return 1
+    cat $dir/out
+    ceph pg dump pgs
+
+    PRIO=$(cat $dir/out | jq "(.local_reservations.queues[].items[] | select(.item == \"${PG2}\")).prio")
+    if [ "$PRIO" != "$degraded_prio" ];
+    then
+      echo "The normal PG ${PG2} doesn't have prio $degraded_prio queued waiting"
+      ERRORS=$(expr $ERRORS + 1)
+    fi
+
+    degraded_prio="$(expr $DEGRADED_PRIO + 3)"
+    # Using eval will strip double-quotes from item
+    eval ITEM=$(cat $dir/out | jq '.local_reservations.in_progress[0].item')
+    if [ "$ITEM" != ${PG1} ];
+    then
+      echo "The size 3 PG $PG1 didn't become the in progress item"
+      ERRORS=$(expr $ERRORS + 1)
+    else
+      PRIO=$(cat $dir/out | jq '.local_reservations.in_progress[0].prio')
+      if [ "$PRIO" != "$degraded_prio" ];
+      then
+        echo "The size 3 PG ${PG1} doesn't have prio $degraded_prio"
+        ERRORS=$(expr $ERRORS + 1)
+      fi
+    fi
+
+    ceph osd unset noout
+    ceph osd unset nobackfill
+
+    wait_for_clean "CEPH_ARGS='' ceph --admin-daemon $(get_asok_path osd.${chk_osd1_1}) dump_reservations" || return 1
+
+    ceph pg dump pgs
+
+    CEPH_ARGS='' ceph --admin-daemon $(get_asok_path osd.${chk_osd1_1}) dump_pgstate_history
+
+    if [ $ERRORS != "0" ];
+    then
+      echo "$ERRORS error(s) found"
+    else
+      echo TEST PASSED
+    fi
+
+    delete_pool $pool1
+    delete_pool $pool2
+    kill_daemons $dir || return 1
+    return $ERRORS
+}
+
+
 main osd-backfill-prio "$@"
 
 # Local Variables:
