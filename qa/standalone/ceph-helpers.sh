@@ -160,6 +160,7 @@ function test_setup() {
 function teardown() {
     local dir=$1
     local dumplogs=$2
+    local RETCODE="0"
     kill_daemons $dir KILL
     if [ `uname` != FreeBSD ] \
         && [ $(stat -f -c '%T' .) == "btrfs" ]; then
@@ -183,6 +184,11 @@ function teardown() {
 	    done
         fi
     fi
+    if grep -q "slow request" $dir/*.log; then
+        echo "Slow requests seen in log"
+        dumplogs="1"
+        RETCODE="1"
+    fi
     if [ "$cores" = "yes" -o "$dumplogs" = "1" ]; then
 	if [ -n "$LOCALRUN" ]; then
 	    display_logs $dir
@@ -201,7 +207,7 @@ function teardown() {
         fi
         return 1
     fi
-    return 0
+    return $RETCODE
 }
 
 function __teardown_btrfs() {
