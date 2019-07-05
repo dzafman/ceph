@@ -10297,6 +10297,7 @@ SnapSetContext *PrimaryLogPG::get_snapset_context(
     }
   } else {
     bufferlist bv;
+    bool gotbv = false;
     if (!attrs) {
       int r = -ENOENT;
       if (!(oid.is_head() && !oid_existed))
@@ -10311,10 +10312,11 @@ SnapSetContext *PrimaryLogPG::get_snapset_context(
     } else {
       assert(attrs->count(SS_ATTR));
       bv = attrs->find(SS_ATTR)->second;
+      gotbv = true;
     }
     ssc = new SnapSetContext(oid.get_snapdir());
     _register_snapset_context(ssc);
-    if (bv.length()) {
+    if (gotbv) {
       bufferlist::iterator bvp = bv.begin();
       try {
 	ssc->snapset.decode(bvp);
