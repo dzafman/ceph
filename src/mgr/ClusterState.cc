@@ -247,6 +247,7 @@ bool ClusterState::asok_command(std::string_view admin_command, const cmdmap_t& 
       std::array<uint32_t,3> max;
       uint32_t last;
       uint32_t last_update;
+      uint32_t resets;
 
       bool operator<(const mgr_ping_time_t& rhs) const {
         if (pingtime < rhs.pingtime)
@@ -296,6 +297,7 @@ bool ClusterState::asok_command(std::string_view admin_command, const cmdmap_t& 
 	  item.last = j.second.back_last;
 	  item.back = true;
 	  item.last_update = j.second.last_update;
+	  item.resets = j.second.back_resets;
 	  sorted.emplace(item);
 	}
 
@@ -318,6 +320,7 @@ bool ClusterState::asok_command(std::string_view admin_command, const cmdmap_t& 
 	  item.last = j.second.front_last;
 	  item.back = false;
 	  item.last_update = j.second.last_update;
+	  item.resets = j.second.front_resets;
 	  sorted.emplace(item);
 	}
       }
@@ -358,6 +361,7 @@ bool ClusterState::asok_command(std::string_view admin_command, const cmdmap_t& 
       f->dump_format_unquoted("15min", "%s", fixed_u_to_string(sitem.max[2],3).c_str());
       f->close_section(); // max
       f->dump_format_unquoted("last", "%s", fixed_u_to_string(sitem.last,3).c_str());
+      f->dump_unsigned("connection resets", sitem.resets);
       f->close_section(); // entry
     }
     f->close_section(); // entries

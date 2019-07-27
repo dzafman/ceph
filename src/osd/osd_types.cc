@@ -456,6 +456,7 @@ void osd_stat_t::dump(Formatter *f) const
     f->dump_format_unquoted("15min", "%s", fixed_u_to_string(i.second.back_max[2],3).c_str());
     f->close_section(); // max
     f->dump_format_unquoted("last", "%s", fixed_u_to_string(i.second.back_last,3).c_str());
+    f->dump_int("connection resets", i.second.back_resets);
     f->close_section(); // interface
 
     if (i.second.front_pingtime[0] != 0) {
@@ -477,6 +478,7 @@ void osd_stat_t::dump(Formatter *f) const
       f->dump_format_unquoted("15min", "%s", fixed_u_to_string(i.second.front_max[2],3).c_str());
       f->close_section(); // max
       f->dump_format_unquoted("last", "%s", fixed_u_to_string(i.second.front_last,3).c_str());
+      f->dump_int("connection resets", i.second.front_resets);
       f->close_section(); // interface
     }
     f->close_section(); // interfaces
@@ -538,6 +540,7 @@ void osd_stat_t::encode(ceph::buffer::list &bl, uint64_t features) const
     encode(i.second.back_max[1], bl);
     encode(i.second.back_max[2], bl);
     encode(i.second.back_last, bl);
+    encode(i.second.back_resets, bl);
     encode(i.second.front_pingtime[0], bl);
     encode(i.second.front_pingtime[1], bl);
     encode(i.second.front_pingtime[2], bl);
@@ -548,6 +551,7 @@ void osd_stat_t::encode(ceph::buffer::list &bl, uint64_t features) const
     encode(i.second.front_max[1], bl);
     encode(i.second.front_max[2], bl);
     encode(i.second.front_last, bl);
+    encode(i.second.front_resets, bl);
   }
   ENCODE_FINISH(bl);
 }
@@ -647,6 +651,7 @@ void osd_stat_t::decode(ceph::buffer::list::const_iterator &bl)
       decode(ifs.back_max[1], bl);
       decode(ifs.back_max[2], bl);
       decode(ifs.back_last, bl);
+      decode(ifs.back_resets, bl);
       decode(ifs.front_pingtime[0], bl);
       decode(ifs.front_pingtime[1], bl);
       decode(ifs.front_pingtime[2], bl);
@@ -657,6 +662,7 @@ void osd_stat_t::decode(ceph::buffer::list::const_iterator &bl)
       decode(ifs.front_max[1], bl);
       decode(ifs.front_max[2], bl);
       decode(ifs.front_last, bl);
+      decode(ifs.front_resets, bl);
       hb_pingtime[osd] = ifs;
     }
   }
@@ -680,11 +686,11 @@ void osd_stat_t::generate_test_instances(std::list<osd_stat_t*>& o)
   o.back()->os_alerts[1].emplace(
     "some alert2", "some alert2 details");
   struct Interfaces gen_interfaces = {
-	123456789, { 1000, 900, 800 }, { 990, 890, 790 }, { 1010, 910, 810 }, 1001,
-	 { 1100, 1000, 900 }, { 1090, 990, 890 }, { 1110, 1010, 910 }, 1101 };
+	123456789, { 1000, 900, 800 }, { 990, 890, 790 }, { 1010, 910, 810 }, 1001, 0,
+	 { 1100, 1000, 900 }, { 1090, 990, 890 }, { 1110, 1010, 910 }, 1101, 5 };
   o.back()->hb_pingtime[20] = gen_interfaces;
   gen_interfaces = {
-	987654321, { 100, 200, 300 }, { 90, 190, 290 }, { 110, 210, 310 }, 101 };
+	987654321, { 100, 200, 300 }, { 90, 190, 290 }, { 110, 210, 310 }, 101, 0 };
   o.back()->hb_pingtime[30] = gen_interfaces;
 }
 

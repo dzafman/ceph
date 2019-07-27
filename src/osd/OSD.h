@@ -1424,6 +1424,7 @@ private:
     vector<uint32_t> hb_back_pingtime;
     vector<uint32_t> hb_back_min;
     vector<uint32_t> hb_back_max;
+    uint32_t hb_back_resets;
 
     uint32_t hb_total_front = 0;
     uint32_t hb_min_front = UINT_MAX;
@@ -1431,6 +1432,7 @@ private:
     vector<uint32_t> hb_front_pingtime;
     vector<uint32_t> hb_front_min;
     vector<uint32_t> hb_front_max;
+    uint32_t hb_front_resets;
 
     bool is_stale(utime_t stale) {
       if (ping_history.empty()) {

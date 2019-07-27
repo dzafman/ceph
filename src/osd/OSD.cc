@@ -2601,6 +2601,7 @@ will start to track new ops received afterwards.";
       std::array<uint32_t,3> max;
       uint32_t last;
       uint32_t last_update;
+      uint32_t resets;
 
       bool operator<(const osd_ping_time_t& rhs) const {
 	if (pingtime < rhs.pingtime)
@@ -2637,8 +2638,9 @@ will start to track new ops received afterwards.";
 	item.max[1] = j.second.back_max[1];
 	item.max[2] = j.second.back_max[2];
 	item.last = j.second.back_last;
-	item.back = true;
 	item.last_update = j.second.last_update;
+	item.resets = j.second.back_resets;
+	item.back = true;
 	sorted.emplace(item);
       }
       if (j.second.front_last == 0)
@@ -2658,6 +2660,7 @@ will start to track new ops received afterwards.";
 	item.max[2] = j.second.front_max[2];
 	item.last = j.second.front_last;
 	item.last_update = j.second.last_update;
+	item.resets = j.second.front_resets;
 	item.back = false;
 	sorted.emplace(item);
       }
@@ -2698,6 +2701,7 @@ will start to track new ops received afterwards.";
       f->dump_format_unquoted("15min", "%s", fixed_u_to_string(sitem.max[2],3).c_str());
       f->close_section();  // max
       f->dump_format_unquoted("last", "%s", fixed_u_to_string(sitem.last,3).c_str());
+      f->dump_int("connection resets", sitem.resets);
       f->close_section();  // entry
     }
     f->close_section(); // entries
@@ -4530,6 +4534,7 @@ void OSD::_add_heartbeat_peer(int p)
     hi->hb_interval_start = ceph_clock_now();
     hi->con_back = cons.first.get();
     hi->con_back->set_priv(sbref);
+    hi->hb_back_resets = 0;
 
     Session *sf = new Session(cct, cons.second.get());
     sf->peer = p;
@@ -4537,6 +4542,7 @@ void OSD::_add_heartbeat_peer(int p)
     RefCountedPtr sfref{sf, false};
     hi->con_front = cons.second.get();
     hi->con_front->set_priv(sfref);
+    hi->hb_front_resets = 0;
 
     dout(10) << "_add_heartbeat_peer: new peer osd." << p
 	     << " " << hi->con_back->get_peer_addr()
@@ -4925,6 +4931,9 @@ void OSD::handle_osd_ping(MOSDPing *m)
 		service.osd_stat.hb_pingtime[from].last_update = now.sec();
 		service.osd_stat.hb_pingtime[from].back_last =  back_pingtime;
 
+		if (i->second.hb_back_resets)
+		  dout(0) << __func__ << " ERROR: " << i->second.hb_back_resets << " connection resets on front interface" << dendl;
+
 		uint32_t total = 0;
 		uint32_t min = UINT_MAX;
 		uint32_t max = 0;
@@ -4951,6 +4960,9 @@ void OSD::handle_osd_ping(MOSDPing *m)
 
                 if (i->second.con_front != NULL) {
 		  service.osd_stat.hb_pingtime[from].front_last = front_pingtime;
+
+		   if (i->second.hb_front_resets)
+		    dout(0) << __func__ << " ERROR: " << i->second.hb_front_resets << " connection resets on front interface" << dendl;
 
 		  total = 0;
 		  min = UINT_MAX;
@@ -5089,6 +5101,7 @@ void OSD::heartbeat_check()
 	     << " last_rx_front " << p->second.last_rx_front
 	     << dendl;
     if (p->second.is_unhealthy(now)) {
+      std::lock_guard l(service.stat_lock);
       utime_t oldest_deadline = p->second.ping_history.begin()->second.first;
       if (p->second.last_rx_back == utime_t() ||
 	  p->second.last_rx_front == utime_t()) {
@@ -5101,6 +5114,8 @@ void OSD::heartbeat_check()
              << dendl;
 	// fail
 	failure_queue[p->first] = p->second.first_tx;
+	service.osd_stat.hb_pingtime[p->first].back_resets++;
+	service.osd_stat.hb_pingtime[p->first].front_resets++;
       } else {
 	derr << "heartbeat_check: no reply from "
              << p->second.con_front->get_peer_addr().get_sockaddr()
@@ -5110,6 +5125,11 @@ void OSD::heartbeat_check()
              << dendl;
 	// fail
 	failure_queue[p->first] = std::min(p->second.last_rx_back, p->second.last_rx_front);
+	if (now - p->second.last_rx_back > cct->_conf->osd_heartbeat_grace) {
+	  service.osd_stat.hb_pingtime[p->first].back_resets++;
+        } else if (p->second.con_front && now - p->second.last_rx_front > cct->_conf->osd_heartbeat_grace) {
+	  service.osd_stat.hb_pingtime[p->first].front_resets++;
+	}
       }
     }
   }
@@ -5239,9 +5259,11 @@ bool OSD::heartbeat_reset(Connection *con)
       if (newcon.first) {
 	p->second.con_back = newcon.first.get();
 	p->second.con_back->set_priv(s);
+	p->second.hb_back_resets++;
 	if (newcon.second) {
 	  p->second.con_front = newcon.second.get();
 	  p->second.con_front->set_priv(s);
+	  p->second.hb_front_resets++;
 	}
         p->second.ping_history.clear();
       } else {
@@ -7863,6 +7885,8 @@ void OSD::note_down_osd(int peer)
 {
   ceph_assert(ceph_mutex_is_locked(osd_lock));
   cluster_messenger->mark_down_addrs(osdmap->get_cluster_addrs(peer));
+
+  dout(20) << __func__ << " peer " << peer << dendl;
 
   std::lock_guard l{heartbeat_lock};
   failure_queue.erase(peer);

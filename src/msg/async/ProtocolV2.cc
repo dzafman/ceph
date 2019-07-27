@@ -149,6 +149,8 @@ void ProtocolV2::reset_session() {
 
   connection->dispatch_queue->queue_remote_reset(connection);
 
+  connection->bump_resets();
+
   out_seq = 0;
   in_seq = 0;
   client_cookie = 0;

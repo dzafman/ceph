@@ -19,6 +19,7 @@
 #include <ostream>
 
 #include <boost/intrusive_ptr.hpp>
+#include <atomic>
 
 #include "auth/Auth.h"
 #include "common/RefCountedObj.h"
@@ -52,6 +53,7 @@ struct Connection : public RefCountedObject {
   utime_t last_keepalive, last_keepalive_ack;
 private:
   uint64_t features;
+  std::atomic<uint32_t> reset_count;
 public:
   bool is_loopback;
   bool failed; // true if we are a lossy connection that has failed.
@@ -84,10 +86,18 @@ public:
       is_loopback(false),
       failed(false),
       rx_buffers_version(0) {
+	atomic_init(&reset_count, 0);
   }
 
   ~Connection() override {
     //generic_dout(0) << "~Connection " << this << dendl;
+  }
+
+  void bump_resets() {
+    reset_count++;
+  }
+  uint32_t get_reset_count() {
+    return reset_count.load();
   }
 
   void set_priv(const RefCountedPtr& o) {
