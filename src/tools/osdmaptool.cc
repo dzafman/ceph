@@ -19,6 +19,7 @@
 #include "common/errno.h"
 #include "common/safe_io.h"
 #include "mon/health_check.h"
+#include <algorithm>
 
 #include "global/global_init.h"
 #include "osd/OSDMap.h"
@@ -46,7 +47,7 @@ void usage()
   cout << "                           commands to <file> [default: - for stdout]" << std::endl;
   cout << "   --upmap <file>          calculate pg upmap entries to balance pg layout" << std::endl;
   cout << "                           writing commands to <file> [default: - for stdout]" << std::endl;
-  cout << "   --upmap-max <max-count> set max upmap entries to calculate [default: 100]" << std::endl;
+  cout << "   --upmap-max <max-count> set max upmap entries to calculate [default: 10]" << std::endl;
   cout << "   --upmap-deviation <max-deviation>" << std::endl;
   cout << "                           max deviation from target [default: .01]" << std::endl;
   cout << "   --upmap-pool <poolname> restrict upmap balancing to 1 or more pools" << std::endl;
@@ -127,7 +128,7 @@ int main(int argc, const char **argv)
   bool upmap_save = false;
   bool health = false;
   std::string upmap_file = "-";
-  int upmap_max = 100;
+  int upmap_max = 10;
   float upmap_deviation = .01;
   std::set<std::string> upmap_pools;
   int64_t pg_num = -1;
@@ -363,23 +364,45 @@ int main(int argc, const char **argv)
 	 << std::endl;
     OSDMap::Incremental pending_inc(osdmap.get_epoch()+1);
     pending_inc.fsid = osdmap.get_fsid();
-    set<int64_t> pools;
+    vector<int64_t> pools;
     for (auto& s : upmap_pools) {
       int64_t p = osdmap.lookup_pg_pool_name(s);
       if (p < 0) {
 	cerr << " pool '" << s << "' does not exist" << std::endl;
 	exit(1);
       }
-      pools.insert(p);
+      pools.push_back(p);
     }
-    if (!pools.empty())
+    if (!pools.empty()) {
       cout << " limiting to pools " << upmap_pools << " (" << pools << ")"
 	   << std::endl;
-    int changed = osdmap.calc_pg_upmaps(
-      g_ceph_context, upmap_deviation,
-      upmap_max, pools,
-      &pending_inc);
-    if (changed) {
+    } else {
+      mempool::osdmap::map<int64_t,pg_pool_t> opools = osdmap.get_pools();
+      for (auto& i : opools) {
+         pools.push_back(i.first);
+      }
+    }
+    srand(time(0));
+    random_shuffle (pools.begin(), pools.end());
+    cout << "pools ";
+    for (auto& i: pools)
+      cout << i << " ";
+    cout << std::endl;
+    int total_did = 0;
+    int left = upmap_max;
+    for (auto& i: pools) {
+      set<int64_t> one_pool;
+      one_pool.insert(i);
+      int did = osdmap.calc_pg_upmaps(
+        g_ceph_context, upmap_deviation,
+        left, one_pool,
+        &pending_inc);
+      total_did += did;
+      left -= did;
+      if (left <= 0)
+        break;
+    }
+    if (total_did > 0) {
       print_inc_upmaps(pending_inc, upmap_fd);
       if (upmap_save) {
 	int r = osdmap.apply_incremental(pending_inc);
