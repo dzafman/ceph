@@ -2712,6 +2712,16 @@ function test_osd_compact()
   $SUDO ceph daemon osd.1 compact
 }
 
+function test_osd_cache_drop()
+{
+  ceph tell osd.0 cache drop
+}
+
+function test_osd_cache_status()
+{
+  ceph tell osd.0 cache status
+}
+
 function test_mds_tell_help_command()
 {
   local FS_NAME=cephfs
@@ -2835,6 +2845,8 @@ OSD_TESTS+=" admin_heap_profiler"
 OSD_TESTS+=" osd_tell_help_command"
 OSD_TESTS+=" osd_compact"
 OSD_TESTS+=" per_pool_scrub_status"
+OSD_TESTS+=" cache_drop"
+OSD_TESTS+=" cache_status"
 
 MDS_TESTS+=" mds_tell"
 MDS_TESTS+=" mon_mds"
