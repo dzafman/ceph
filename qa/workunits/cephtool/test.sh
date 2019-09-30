@@ -785,6 +785,8 @@ function test_mon_misc()
   ceph versions
 
   ceph node ls
+
+  ceph config ls
 }
 
 function check_mds_active()
@@ -2720,6 +2722,16 @@ function test_osd_cache_drop()
 function test_osd_cache_status()
 {
   ceph tell osd.0 cache status
+}
+
+function test_mon_cache_ls()
+{
+  ceph cache ls
+}
+
+function test_mon_device_ls()
+{
+  ceph device ls
 }
 
 function test_mds_tell_help_command()
