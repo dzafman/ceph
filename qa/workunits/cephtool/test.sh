@@ -931,6 +931,7 @@ function test_mon_mds()
 
   ceph mds compat show
   ceph fs dump
+  ceph fs authorize $FS_NAME client.foo / r
   ceph fs get $FS_NAME
   for mds_gid in $(get_mds_gids $FS_NAME) ; do
       ceph mds metadata $mds_id
@@ -1132,6 +1133,11 @@ function test_mon_mds()
   fail_all_mds $FS_NAME
   ceph fs rm $FS_NAME --yes-i-really-mean-it
 
+  # Test ceph fs fail command
+  ceph fs new failfs fs_metadata fs_data
+  wait_mds_active failfs
+  ceph fs fail failfs
+  ceph fs rm failfs --yes-i-really-mean-it
 
 
   ceph mds stat
