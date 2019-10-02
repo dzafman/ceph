@@ -1180,6 +1180,8 @@ function test_mon_mon()
   # ceph mon tell
   ceph mon_status
 
+  ceph mon compact
+
   # test mon features
   ceph mon feature ls
   ceph mon feature set kraken --yes-i-really-mean-it
