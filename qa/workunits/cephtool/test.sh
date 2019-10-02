@@ -340,8 +340,8 @@ function test_tiering_agent()
       sleep 1
   done
   $evicted # assert
-  ceph osd tier remove-overlay $slow
-  ceph osd tier remove $slow $fast
+  ceph osd tier rm-overlay $slow
+  ceph osd tier rm $slow $fast
   ceph osd pool delete $fast $fast --yes-i-really-really-mean-it
   ceph osd pool delete $slow $slow --yes-i-really-really-mean-it
 }
@@ -404,17 +404,17 @@ function test_tiering_1()
   ceph osd tier cache-mode cache none
   ceph osd tier set-overlay slow cache
   expect_false ceph osd tier set-overlay slow cache2
-  expect_false ceph osd tier remove slow cache
-  ceph osd tier remove-overlay slow
+  expect_false ceph osd tier rm slow cache
+  ceph osd tier rm-overlay slow
   ceph osd tier set-overlay slow cache2
-  ceph osd tier remove-overlay slow
-  ceph osd tier remove slow cache
+  ceph osd tier rm-overlay slow
+  ceph osd tier rm slow cache
   ceph osd tier add slow2 cache
   expect_false ceph osd tier set-overlay slow cache
   ceph osd tier set-overlay slow2 cache
-  ceph osd tier remove-overlay slow2
-  ceph osd tier remove slow2 cache
-  ceph osd tier remove slow cache2
+  ceph osd tier rm-overlay slow2
+  ceph osd tier rm slow2 cache
+  ceph osd tier rm slow cache2
 
   # make sure a non-empty pool fails
   rados -p cache2 put /etc/passwd /etc/passwd
@@ -424,7 +424,7 @@ function test_tiering_1()
   done
   expect_false ceph osd tier add slow cache2
   ceph osd tier add slow cache2 --force-nonempty
-  ceph osd tier remove slow cache2
+  ceph osd tier rm slow cache2
 
   ceph osd pool ls | grep cache2
   ceph osd pool ls -f json-pretty | grep cache2
@@ -457,7 +457,7 @@ function test_tiering_3()
   ceph osd pool create cachex 2
   ceph osd tier add basex cachex
   expect_false ceph osd pool mksnap cache snapname
-  ceph osd tier remove basex cachex
+  ceph osd tier rm basex cachex
   ceph osd pool delete basex basex --yes-i-really-really-mean-it
   ceph osd pool delete cachex cachex --yes-i-really-really-mean-it
 }
@@ -482,10 +482,10 @@ function test_tiering_5()
   ceph osd pool create cache3 2
   ceph osd tier add-cache slow cache3 1024000
   ceph osd dump | grep cache3 | grep bloom | grep 'false_positive_probability: 0.05' | grep 'target_bytes 1024000' | grep '1200s x4'
-  ceph osd tier remove slow cache3 2> $TMPFILE || true
+  ceph osd tier rm slow cache3 2> $TMPFILE || true
   check_response "EBUSY: tier pool 'cache3' is the overlay for 'slow'; please remove-overlay first"
-  ceph osd tier remove-overlay slow
-  ceph osd tier remove slow cache3
+  ceph osd tier rm-overlay slow
+  ceph osd tier rm slow cache3
   ceph osd pool ls | grep cache3
   ceph osd pool delete cache3 cache3 --yes-i-really-really-mean-it
   ! ceph osd pool ls | grep cache3 || exit 1
@@ -504,8 +504,8 @@ function test_tiering_6()
   rados -p cachepool stat object
   rados -p cachepool cache-flush object
   rados -p datapool stat object
-  ceph osd tier remove-overlay datapool
-  ceph osd tier remove datapool cachepool
+  ceph osd tier rm-overlay datapool
+  ceph osd tier rm datapool cachepool
   ceph osd pool delete cachepool cachepool --yes-i-really-really-mean-it
   ceph osd pool delete datapool datapool --yes-i-really-really-mean-it
 }
@@ -521,8 +521,8 @@ function test_tiering_7()
   check_response "EBUSY: pool 'cachepool' is a tier of 'datapool'"
   ceph osd pool delete datapool datapool --yes-i-really-really-mean-it 2> $TMPFILE || true
   check_response "EBUSY: pool 'datapool' has tiers cachepool"
-  ceph osd tier remove-overlay datapool
-  ceph osd tier remove datapool cachepool
+  ceph osd tier rm-overlay datapool
+  ceph osd tier rm datapool cachepool
   ceph osd pool delete cachepool cachepool --yes-i-really-really-mean-it
   ceph osd pool delete datapool datapool --yes-i-really-really-mean-it
 }
@@ -545,8 +545,8 @@ function test_tiering_8()
   rm -f $tmpfile
   flush_pg_stats
   ceph df | grep datapool | grep ' 2 '
-  ceph osd tier remove-overlay datapool
-  ceph osd tier remove datapool cache4
+  ceph osd tier rm-overlay datapool
+  ceph osd tier rm datapool cache4
   ceph osd pool delete cache4 cache4 --yes-i-really-really-mean-it
   ceph osd pool delete datapool datapool --yes-i-really-really-mean-it
   ceph osd unset notieragent
@@ -569,14 +569,14 @@ function test_tiering_9()
   ceph osd pool create cache6 2
   ceph osd tier add basepoolA cache5
   ceph osd tier add basepoolB cache6
-  ceph osd tier remove basepoolB cache5 2>&1 | grep 'not a tier of'
+  ceph osd tier rm basepoolB cache5 2>&1 | grep 'not a tier of'
   ceph osd dump | grep "pool.*'cache5'" 2>&1 | grep "tier_of[ \t]\+$poolA_id"
-  ceph osd tier remove basepoolA cache6 2>&1 | grep 'not a tier of'
+  ceph osd tier rm basepoolA cache6 2>&1 | grep 'not a tier of'
   ceph osd dump | grep "pool.*'cache6'" 2>&1 | grep "tier_of[ \t]\+$poolB_id"
 
-  ceph osd tier remove basepoolA cache5 2>&1 | grep 'not a tier of'
+  ceph osd tier rm basepoolA cache5 2>&1 | grep 'not a tier of'
   ! ceph osd dump | grep "pool.*'cache5'" 2>&1 | grep "tier_of" || exit 1
-  ceph osd tier remove basepoolB cache6 2>&1 | grep 'not a tier of'
+  ceph osd tier rm basepoolB cache6 2>&1 | grep 'not a tier of'
   ! ceph osd dump | grep "pool.*'cache6'" 2>&1 | grep "tier_of" || exit 1
 
   ! ceph osd dump | grep "pool.*'basepoolA'" 2>&1 | grep "tiers" || exit 1
@@ -1063,9 +1063,9 @@ function test_mon_mds()
   # While a FS exists using the tiered pools, I should not be allowed
   # to remove the tier
   set +e
-  ceph osd tier remove-overlay mds-ec-pool 2>$TMPFILE
+  ceph osd tier rm-overlay mds-ec-pool 2>$TMPFILE
   check_response 'in use by CephFS' $? 16
-  ceph osd tier remove mds-ec-pool mds-tier 2>$TMPFILE
+  ceph osd tier rm mds-ec-pool mds-tier 2>$TMPFILE
   check_response 'in use by CephFS' $? 16
   set -e
 
@@ -1083,8 +1083,8 @@ function test_mon_mds()
   set -e
 
   # Clean up tier + EC pools
-  ceph osd tier remove-overlay mds-ec-pool
-  ceph osd tier remove mds-ec-pool mds-tier
+  ceph osd tier rm-overlay mds-ec-pool
+  ceph osd tier rm mds-ec-pool mds-tier
 
   # Create a FS using the 'cache' pool now that it's no longer a tier
   ceph fs new $FS_NAME fs_metadata mds-tier --force
@@ -1125,8 +1125,8 @@ function test_mon_mds()
   # Removing tier should be permitted because the underlying pool is
   # replicated (#11504 case)
   ceph osd tier cache-mode mds-tier proxy
-  ceph osd tier remove-overlay fs_metadata
-  ceph osd tier remove fs_metadata mds-tier
+  ceph osd tier rm-overlay fs_metadata
+  ceph osd tier rm fs_metadata mds-tier
   ceph osd pool delete mds-tier mds-tier --yes-i-really-really-mean-it
 
   # Clean up FS
@@ -2422,7 +2422,7 @@ function test_mon_osd_tiered_pool_set()
   expect_false ceph osd pool set fake-tier cache_min_evict_age 234
   expect_false ceph osd pool get fake-tier cache_min_evict_age
 
-  ceph osd tier remove rbd real-tier
+  ceph osd tier rm rbd real-tier
   ceph osd pool delete real-tier real-tier --yes-i-really-really-mean-it
   ceph osd pool delete fake-tier fake-tier --yes-i-really-really-mean-it
 }

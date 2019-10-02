@@ -43,7 +43,7 @@ rados -p base_pool get barobj tmp.txt
 diff -q tmp.txt foo.txt
 
 # switch cache pools and make sure we're doing promote
-ceph osd tier remove-overlay base_pool
+ceph osd tier rm-overlay base_pool
 ceph osd tier set-overlay base_pool partial_wrong
 ceph osd tier cache-mode partial_wrong writeback
 rados -p base_pool get fooobj tmp.txt
@@ -55,7 +55,7 @@ diff -q tmp.txt foo.txt # yep, we read partial_wrong's local object!
 expect_false rados -p base_pool get bazobj tmp.txt
 
 # drop the cache entirely and make sure contents are still the same
-ceph osd tier remove-overlay base_pool
+ceph osd tier rm-overlay base_pool
 rados -p base_pool get fooobj tmp.txt
 diff -q tmp.txt foo.txt
 rados -p base_pool get barobj tmp.txt
@@ -79,10 +79,10 @@ rados -p empty_cache ls > tmp.txt
 expect_false diff -q tmp.txt empty.txt
 
 # cleanup
-ceph osd tier remove-overlay base_pool
-ceph osd tier remove base_pool wrong_cache
-ceph osd tier remove base_pool partial_wrong
-ceph osd tier remove base_pool empty_cache
+ceph osd tier rm-overlay base_pool
+ceph osd tier rm base_pool wrong_cache
+ceph osd tier rm base_pool partial_wrong
+ceph osd tier rm base_pool empty_cache
 ceph osd pool delete base_pool base_pool --yes-i-really-really-mean-it
 ceph osd pool delete empty_cache empty_cache --yes-i-really-really-mean-it
 ceph osd pool delete wrong_cache wrong_cache --yes-i-really-really-mean-it
@@ -161,8 +161,8 @@ rados -p base get testclone2 testclone2.txt
 diff -q testclone2.txt /etc/hosts
 
 # cleanup
-ceph osd tier remove-overlay base
-ceph osd tier remove base cache
+ceph osd tier rm-overlay base
+ceph osd tier rm base cache
 
 ceph osd pool delete cache cache --yes-i-really-really-mean-it
 ceph osd pool delete base base --yes-i-really-really-mean-it

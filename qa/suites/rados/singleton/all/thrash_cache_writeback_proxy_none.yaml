@@ -47,7 +47,7 @@ tasks:
       - rados -p cache cache-flush-evict-all
       - sleep 5
       - echo remove overlay
-      - sudo ceph osd tier remove-overlay base
+      - sudo ceph osd tier rm-overlay base
       - sleep 20
       - echo add writeback overlay
       - sudo ceph osd tier cache-mode cache writeback
