@@ -942,7 +942,7 @@ function test_mon_mds()
 
   # XXX mds fail, but how do you undo it?
   mdsmapfile=$TEMP_DIR/mdsmap.$$
-  current_epoch=$(ceph fs dump -o $mdsmapfile --no-log-to-stderr 2>&1 | grep epoch | sed 's/.*epoch //')
+  current_epoch=$(ceph fs dump --format=json | jq '.epoch')
   [ -s $mdsmapfile ]
   rm $mdsmapfile
 

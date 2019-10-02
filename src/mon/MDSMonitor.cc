@@ -983,7 +983,6 @@ bool MDSMonitor::preprocess_command(MonOpRequestRef op)
     }
 
     rdata.append(ds);
-    ss << "dumped fsmap epoch " << fsmapp->get_epoch();
   } else if (prefix == "mds metadata") {
     if (!f)
       f.reset(Formatter::create("json-pretty"));
