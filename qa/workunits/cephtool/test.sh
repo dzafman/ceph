@@ -2971,7 +2971,7 @@ fi
 ceph osd pool create rbd 10
 
 if test -z "$tests_to_run" ; then
-  tests_to_run="$TESTS"
+  tests_to_run="$MDS_TESTS"
 fi
 
 if $sanity_check ; then
