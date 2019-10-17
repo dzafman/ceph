@@ -2962,7 +2962,7 @@ for i in $tests_to_run; do
       check_no_osd_down
   fi
   set -x
-  test_${i}
+  test_${i} || return 1
   set +x
 done
 if $sanity_check ; then
