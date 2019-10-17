@@ -1142,9 +1142,28 @@ function test_mon_mds()
 
   ceph mds stat
   # ceph mds tell mds.a getmap
-  # ceph mds rm
-  # ceph mds rmfailed
   # ceph mds set_state
+
+  ceph osd pool delete fs_data fs_data --yes-i-really-really-mean-it
+  ceph osd pool delete fs_metadata fs_metadata --yes-i-really-really-mean-it
+}
+
+# Test ceph mds rm
+function test_mon_mds2()
+{
+  local FS_NAME=cephfs
+  remove_all_fs
+
+  ceph osd pool create fs_data 10
+  ceph osd pool create fs_metadata 10
+  ceph fs new $FS_NAME fs_metadata fs_data
+
+  STANDBYGID=$(ceph fs dump --format=json-pretty | jq '.standbys[0].gid')
+  ceph mds rm $STANDBYGID
+
+  # Clean up FS
+  fail_all_mds $FS_NAME
+  ceph fs rm $FS_NAME --yes-i-really-mean-it
 
   ceph osd pool delete fs_data fs_data --yes-i-really-really-mean-it
   ceph osd pool delete fs_metadata fs_metadata --yes-i-really-really-mean-it
@@ -2870,6 +2889,7 @@ OSD_TESTS+=" cache_status"
 
 MDS_TESTS+=" mds_tell"
 MDS_TESTS+=" mon_mds"
+MDS_TESTS+=" mon_mds2"
 MDS_TESTS+=" mon_mds_metadata"
 MDS_TESTS+=" mds_tell_help_command"
 
