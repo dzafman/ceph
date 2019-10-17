@@ -3,6 +3,8 @@ roles:
   - mon.b
   - mon.c
   - mgr.x
+  - mds.a
+  - mds.b
   - osd.0
   - osd.1
   - osd.2
@@ -37,6 +39,7 @@ tasks:
     - \(POOL_NEARFULL\)
     - \(POOL_APP_NOT_ENABLED\)
     - \(AUTH_BAD_CAPS\)
+    - \(MDS_INSUFFICIENT_STANDBY\)
 - workunit:
     clients:
       all:
