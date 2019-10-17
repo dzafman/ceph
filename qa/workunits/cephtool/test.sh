@@ -2849,7 +2849,7 @@ function test_per_pool_scrub_status()
 
 set +x
 MON_TESTS+=" mon_injectargs"
-MON_TESTS+=" mon_injectargs_SI"
+#MON_TESTS+=" mon_injectargs_SI"
 for i in `seq 9`; do
     MON_TESTS+=" tiering_$i";
 done
@@ -2864,7 +2864,7 @@ MON_TESTS+=" mon_osd_create_destroy"
 MON_TESTS+=" mon_osd_pool"
 MON_TESTS+=" mon_osd_pool_quota"
 MON_TESTS+=" mon_pg"
-MON_TESTS+=" mon_osd_pool_set"
+#MON_TESTS+=" mon_osd_pool_set"
 MON_TESTS+=" mon_osd_tiered_pool_set"
 MON_TESTS+=" mon_osd_erasure_code"
 MON_TESTS+=" mon_osd_misc"
