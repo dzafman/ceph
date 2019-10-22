@@ -2889,9 +2889,12 @@ OSD_TESTS+=" per_pool_scrub_status"
 OSD_TESTS+=" cache_drop"
 OSD_TESTS+=" cache_status"
 
+# This first  test removes 1(2) mds specified
+# in the yaml.  The other tests had always
+# run with a single mds.
+MDS_TESTS+=" mon_mds_first"
 MDS_TESTS+=" mds_tell"
 MDS_TESTS+=" mon_mds"
-MDS_TESTS+=" mon_mds2"
 MDS_TESTS+=" mon_mds_metadata"
 MDS_TESTS+=" mds_tell_help_command"
 
