@@ -40,6 +40,7 @@ tasks:
     - \(POOL_APP_NOT_ENABLED\)
     - \(AUTH_BAD_CAPS\)
     - \(MDS_INSUFFICIENT_STANDBY\)
+    - \(FS_INLINE_DATA_DEPRECATED\)
 - workunit:
     clients:
       all:
