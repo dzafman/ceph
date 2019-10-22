@@ -1134,7 +1134,9 @@ function test_mon_mds()
   ceph fs rm $FS_NAME --yes-i-really-mean-it
 
   # Test ceph fs fail command
-  ceph fs new failfs fs_metadata fs_data
+  ceph osd pool create fs_data2 10
+  ceph osd pool create fs_metadata2 10
+  ceph fs new failfs fs_metadata2 fs_data2
   wait_mds_active failfs
   ceph fs fail failfs
   ceph fs rm failfs --yes-i-really-mean-it
