@@ -827,7 +827,7 @@ function fail_all_mds()
   if check_mds_active $fs_name ; then
       echo "An active MDS remains, something went wrong"
       ceph fs get $fs_name
-      exit -1
+      exit 1
   fi
 
 }
