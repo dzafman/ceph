@@ -1070,6 +1070,12 @@ def main(argv):
     cmd = (CFSD_PREFIX + "'[\"1.3\",{{\"snapid\":\"not an int\"}}]' list-omap").format(osd=ONEOSD, pg=ONEPG)
     ERRORS += test_failure(cmd, "Decode object JSON error: value type is 2 not 4")
 
+    cmd = (CFSD_PREFIX + "--op fuse").format(osd=ONEOSD, pg=ONEPG)
+    ERRORS += test_failure(cmd, "Missing fuse mountpoint (use --mountpoint)")
+
+    cmd = (CFSD_PREFIX + "--op apply-layout-settings").format(osd=ONEOSD, pg=ONEPG)
+    ERRORS += test_failure(cmd, "apply-layout-settings requires either --pool or --pgid")
+
     TMPFILE = r"/tmp/tmp.{pid}".format(pid=pid)
     ALLPGS = OBJREPPGS + OBJECPGS
     OSDS = get_osds(ALLPGS[0], OSDDIR)

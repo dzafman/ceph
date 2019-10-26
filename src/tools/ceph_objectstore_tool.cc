@@ -2270,7 +2270,11 @@ int do_get_attr(ObjectStore *store, coll_t coll, ghobject_t &ghobj, string key)
 
   int r = store->getattr(ch, ghobj, key.c_str(), bp);
   if (r < 0) {
-    cerr << "getattr: " << cpp_strerror(r) << std::endl;
+    if (r == -ENODATA) {
+      cerr << "Key not found" << std::endl;
+    } else {
+      cerr << "getattr: " << cpp_strerror(r) << std::endl;
+    }
     return r;
   }
 
@@ -3076,6 +3080,37 @@ void usage(po::options_description &desc)
     cerr << std::endl;
     cerr << desc << std::endl;
     cerr << std::endl;
+    cerr << "Operation (--op) descriptions:" << std::endl;
+    cerr << std::endl;
+    cerr << "info (requires --pgid to be specified): Dump a PG's info (pg_info_t)" << std::endl;
+    cerr << "log (requires --pgid to be specified): Dump a PG's log and missing (pg_log_t and pg_missing_t)" << std::endl;
+    cerr << "remove (requires --pgid to be specified): Remove a PG, use export-remove or requires --force" << std::endl;
+    cerr << "mkfs (optional --fsid): Build an objectstore, used before --op dup" << std::endl;
+    cerr << "fsck: Check an objectstore, use fsck-deep to do a deeper check" << std::endl;
+    cerr << "repair: Repair an objectstore, use repair-deep to do a deeper repair" << std::endl;
+    cerr << "fuse (requires --mountpoint to be specified): Fuse mount an objectstore" << std::endl;
+    cerr << "dup (requires --target-data-path to be specified): Duplicate an objectstore" << std::endl;
+    cerr << "export (requires --pgid to be specified): Export the contents of a PG" << std::endl;
+    cerr << "export-remove (requires --pgid to be specified): Export the contents of a PG then remove it" << std::endl;
+    cerr << "import: Import a PG from the contents of an export" << std::endl;
+    cerr << "list (optional --pgid can be specified): List objects in an objectstore or a specific PG" << std::endl;
+    cerr << "list-slow-omap (optional --pgid / --slow-omap-threshold can be specified): Report on slow omap access" << std::endl;
+    cerr << "fix-lost (optional --pgid can be specified): Clear legacy lost flag on objects in an objectstore or a specific PG" << std::endl;
+    cerr << "list-pgs: List all PGs in an objectstore" << std::endl;
+    cerr << "dump-journal: Dump a filestore journal" << std::endl;
+    cerr << "dump-super: Dump an objectsore's superblock" << std::endl;
+    cerr << "meta-list: List objects in the meta PG" << std::endl;
+    cerr << "get-osdmap: (optional --epoch can be specified): Write an osdmap of current epoch or as specified" << std::endl;
+    cerr << "set-osdmap: Replace an osdmap" << std::endl;
+    cerr << "get-inc-osdmap: (optional --epoch can be specified): Write an incremental osdmap of current epoch or as specified" << std::endl;
+    cerr << "set-inc-osdmap: Replace an incremental osdmap" << std::endl;
+    cerr << "mark-complete (requires --pgid to be specified): Fix a PG in incomplete state *** Possible data loss *** Use only as a last resort" << std::endl;
+    cerr << "reset-last-complete (requires --pgid to be specified): Reset a PGs last_complete *** Likely data loss *** Use only with developer help" << std::endl;
+    cerr << "apply-layout-settings [target] (requires --pgid or --pool): Apply filestore layout settings or use target specified" << std::endl;
+    cerr << "update-mon-db (requires --mon-store-path): Rebuild a corrupted monitor database" << std::endl;
+    cerr << "dump-export: Dump the contents of an export" << std::endl;
+    cerr << "trim-pg-log (requires --pgid): Trim a pg log offline" << std::endl;
+    cerr << std::endl;
     cerr << "Positional syntax:" << std::endl;
     cerr << std::endl;
     cerr << "ceph-objectstore-tool ... <object> (get|set)-bytes [file]" << std::endl;
@@ -3087,7 +3122,7 @@ void usage(po::options_description &desc)
     cerr << "ceph-objectstore-tool ... <object> list-omap" << std::endl;
     cerr << "ceph-objectstore-tool ... <object> remove|removeall" << std::endl;
     cerr << "ceph-objectstore-tool ... <object> dump" << std::endl;
-    cerr << "ceph-objectstore-tool ... <object> set-size" << std::endl;
+    cerr << "ceph-objectstore-tool ... <object> set-size <size>" << std::endl;
     cerr << "ceph-objectstore-tool ... <object> clear-data-digest" << std::endl;
     cerr << "ceph-objectstore-tool ... <object> remove-clone-metadata <cloneid>" << std::endl;
     cerr << std::endl;
@@ -3356,7 +3391,6 @@ int main(int argc, char **argv)
      op != "dump-export" &&
      !(op == "dump-journal" && type == "filestore")) {
     cerr << "Must provide --data-path" << std::endl;
-    usage(desc);
     return 1;
   }
   if (type == "filestore" && !vm.count("journal-path")) {
@@ -3364,29 +3398,24 @@ int main(int argc, char **argv)
   }
   if (!vm.count("op") && !vm.count("object")) {
     cerr << "Must provide --op or object command..." << std::endl;
-    usage(desc);
     return 1;
   }
   if (op != "list" && op != "apply-layout-settings" &&
       vm.count("op") && vm.count("object")) {
     cerr << "Can't specify both --op and object command syntax" << std::endl;
-    usage(desc);
     return 1;
   }
   if (op == "apply-layout-settings" && !(vm.count("pool") ^ vm.count("pgid"))) {
     cerr << "apply-layout-settings requires either --pool or --pgid"
 	 << std::endl;
-    usage(desc);
     return 1;
   }
   if (op != "list" && op != "apply-layout-settings" && vm.count("object") && !vm.count("objcmd")) {
     cerr << "Invalid syntax, missing command" << std::endl;
-    usage(desc);
     return 1;
   }
   if (op == "fuse" && mountpoint.length() == 0) {
-    cerr << "Missing fuse mountpoint" << std::endl;
-    usage(desc);
+    cerr << "Missing fuse mountpoint (use --mountpoint)" << std::endl;
     return 1;
   }
   outistty = isatty(STDOUT_FILENO);
@@ -3783,7 +3812,6 @@ int main(int argc, char **argv)
       || op == "trim-pg-log") &&
       pgidstr.length() == 0) {
     cerr << "Must provide pgid" << std::endl;
-    usage(desc);
     ret = 1;
     goto out;
   }
@@ -3996,7 +4024,6 @@ int main(int argc, char **argv)
     cerr << "Must provide --op (info, log, remove, mkfs, fsck, repair, export, export-remove, import, list, fix-lost, list-pgs, dump-journal, dump-super, meta-list, "
       "get-osdmap, set-osdmap, get-inc-osdmap, set-inc-osdmap, mark-complete, reset-last-complete, dump-export, trim-pg-log)"
 	 << std::endl;
-    usage(desc);
     ret = 1;
     goto out;
   }
@@ -4064,7 +4091,7 @@ int main(int argc, char **argv)
         goto out;
       } else if (objcmd == "get-attr") {
 	if (vm.count("arg1") == 0) {
-	  usage(desc);
+	  cerr << "usage: ceph-objectstore-tool ... <object> get-attr <key>" << std::endl;
           ret = 1;
           goto out;
         }
@@ -4072,7 +4099,7 @@ int main(int argc, char **argv)
         goto out;
       } else if (objcmd == "set-attr") {
 	if (vm.count("arg1") == 0) {
-	  usage(desc);
+	  cerr << "usage: ceph-objectstore-tool ... <object> set-attr <key> [file]" << std::endl;
           ret = 1;
         }
 
@@ -4099,7 +4126,7 @@ int main(int argc, char **argv)
         goto out;
       } else if (objcmd == "rm-attr") {
 	if (vm.count("arg1") == 0) {
-	  usage(desc);
+	  cerr << "usage: ceph-objectstore-tool ... <object> rm-attr <key>" << std::endl;
           ret = 1;
           goto out;
         }
@@ -4107,7 +4134,7 @@ int main(int argc, char **argv)
         goto out;
       } else if (objcmd == "get-omap") {
 	if (vm.count("arg1") == 0) {
-	  usage(desc);
+	  cerr << "usage: ceph-objectstore-tool ... <object> get-omap <key>" << std::endl;
           ret = 1;
           goto out;
         }
@@ -4115,7 +4142,7 @@ int main(int argc, char **argv)
         goto out;
       } else if (objcmd == "set-omap") {
 	if (vm.count("arg1") == 0) {
-	  usage(desc);
+	  cerr << "usage: ceph-objectstore-tool ... <object> set-omap <key> [file]" << std::endl;
           ret = 1;
           goto out;
         }
@@ -4142,7 +4169,7 @@ int main(int argc, char **argv)
         goto out;
       } else if (objcmd == "rm-omap") {
 	if (vm.count("arg1") == 0) {
-	  usage(desc);
+	  cerr << "usage: ceph-objectstore-tool ... <object> rm-omap <key>" << std::endl;
           ret = 1;
           goto out;
         }
@@ -4150,7 +4177,7 @@ int main(int argc, char **argv)
         goto out;
       } else if (objcmd == "get-omaphdr") {
 	if (vm.count("arg1")) {
-	  usage(desc);
+	  cerr << "usage: ceph-objectstore-tool ... <object> get-omaphdr" << std::endl;
           ret = 1;
           goto out;
         }
@@ -4159,7 +4186,7 @@ int main(int argc, char **argv)
       } else if (objcmd == "set-omaphdr") {
         // Extra arg
 	if (vm.count("arg2")) {
-	  usage(desc);
+	  cerr << "usage: ceph-objectstore-tool ... <object> set-omaphdr [file]" << std::endl;
           ret = 1;
           goto out;
         }
@@ -4187,7 +4214,7 @@ int main(int argc, char **argv)
       } else if (objcmd == "dump") {
 	// There should not be any other arguments
 	if (vm.count("arg1") || vm.count("arg2")) {
-	  usage(desc);
+	  cerr << "usage: ceph-objectstore-tool ... <object> dump" << std::endl;
 	  ret = 1;
 	  goto out;
 	}
@@ -4196,7 +4223,7 @@ int main(int argc, char **argv)
       } else if (objcmd == "corrupt-info") {   // Undocumented testing feature
 	// There should not be any other arguments
 	if (vm.count("arg1") || vm.count("arg2")) {
-	  usage(desc);
+	  cerr << "usage: ceph-objectstore-tool ... <object> corrupt-info" << std::endl;
           ret = 1;
           goto out;
         }
@@ -4207,7 +4234,7 @@ int main(int argc, char **argv)
 	bool corrupt = (objcmd == "corrupt-size");
         // Extra arg
 	if (vm.count("arg1") == 0 || vm.count("arg2")) {
-	  usage(desc);
+	  cerr << "usage: ceph-objectstore-tool ... <object> corrupt-size <size>" << std::endl;
           ret = 1;
           goto out;
         }
@@ -4220,6 +4247,12 @@ int main(int argc, char **argv)
 	ret = set_size(fs, coll, ghobj, size, formatter, corrupt);
 	goto out;
       } else if (objcmd == "clear-data-digest") {
+	// There should not be any other arguments
+	if (vm.count("arg1") || vm.count("arg2")) {
+	  cerr << "usage: ceph-objectstore-tool ... <object> clear-data-digest" << std::endl;
+	  ret = 1;
+	  goto out;
+	}
         ret = clear_data_digest(fs, coll, ghobj);
         goto out;
       } else if (objcmd == "clear-snapset") {
@@ -4235,7 +4268,7 @@ int main(int argc, char **argv)
       } else if (objcmd == "remove-clone-metadata") {
         // Extra arg
 	if (vm.count("arg1") == 0 || vm.count("arg2")) {
-	  usage(desc);
+	  cerr << "usage: ceph-objectstore-tool ... <object> remove-clone-metadata <cloneid>" << std::endl;
           ret = 1;
           goto out;
         }
@@ -4254,7 +4287,6 @@ int main(int argc, char **argv)
 	goto out;
       }
       cerr << "Unknown object command '" << objcmd << "'" << std::endl;
-      usage(desc);
       ret = 1;
       goto out;
     }
