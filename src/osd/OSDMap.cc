@@ -4162,6 +4162,7 @@ int OSDMap::calc_pg_upmaps(
     set<pg_t> to_unmap;
     map<pg_t, mempool::osdmap::vector<pair<int32_t,int32_t>>> to_upmap;
     auto temp_pgs_by_osd = pgs_by_osd;
+    map<int,set<pg_t>> new_pgs_by_osd_add, new_pgs_by_osd_del;
     // always start with fullest, break if we find any changes to make
     for (auto p = deviation_osd.rbegin(); p != deviation_osd.rend(); ++p) {
       if (skip_overfull) {
@@ -4221,7 +4222,9 @@ int OSDMap::calc_pg_upmaps(
                            << " into overfull osd." << osd
                            << dendl;
             temp_pgs_by_osd[q.second].erase(pg);
+            new_pgs_by_osd_del[q.second].insert(pg);
             temp_pgs_by_osd[q.first].insert(pg);
+            new_pgs_by_osd_add[q.first].insert(pg);
           } else {
             new_upmap_items.push_back(q);
           }
@@ -4304,7 +4307,9 @@ int OSDMap::calc_pg_upmaps(
           existing.insert(orig[i]);
           existing.insert(out[i]);
           temp_pgs_by_osd[orig[i]].erase(pg);
+          new_pgs_by_osd_del[orig[i]].insert(pg);
           temp_pgs_by_osd[out[i]].insert(pg);
+          new_pgs_by_osd_add[out[i]].insert(pg);
           ceph_assert(new_upmap_items.size() < (size_t)pg_pool_size);
           new_upmap_items.push_back(make_pair(orig[i], out[i]));
           // append new remapping pairs slowly
@@ -4376,7 +4381,9 @@ int OSDMap::calc_pg_upmaps(
                            << " out from underfull osd." << osd
                            << dendl;
             temp_pgs_by_osd[j.second].erase(pg);
+            new_pgs_by_osd_del[j.second].insert(pg);
             temp_pgs_by_osd[j.first].insert(pg);
+            new_pgs_by_osd_add[j.first].insert(pg);
           } else {
             new_upmap_items.push_back(j);
           }
@@ -4426,22 +4433,74 @@ int OSDMap::calc_pg_upmaps(
 
     // test change, apply if change is good
     ceph_assert(to_unmap.size() || to_upmap.size());
-    float new_stddev = 0;
-    map<int,float> temp_osd_deviation;
-    multimap<float,int> temp_deviation_osd;
-    for (auto& i : temp_pgs_by_osd) {
+    float new_stddev = stddev;
+    map<int,float> temp_osd_deviation = osd_deviation;
+    multimap<float,int> temp_deviation_osd = deviation_osd;
+    for (auto& i : new_pgs_by_osd_del) {
       // make sure osd is still there (belongs to this crush-tree)
       ceph_assert(osd_weight.count(i.first));
       float target = osd_weight[i.first] * pgs_per_weight;
-      float deviation = (float)i.second.size() - target;
-      ldout(cct, 20) << " osd." << i.first
+      float new_deviation = (pgs_by_osd[i.first].size() - (float)i.second.size()) - target;
+      float old_deviation = temp_osd_deviation[i.first];
+      ldout(cct, 20) << "del osd." << i.first
                      << "\tpgs " << i.second.size()
                      << "\ttarget " << target
-                     << "\tdeviation " << deviation
+                     << "\told_deviation " << old_deviation
+                     << "\tnew_deviation " << new_deviation
                      << dendl;
-      temp_osd_deviation[i.first] = deviation;
-      temp_deviation_osd.insert(make_pair(deviation, i.first));
-      new_stddev += deviation * deviation;
+      bool found = false;
+      //Multimap needs to look for removal item
+      //temp_deviation_osd.erase(make_pair(old_deviation, i.first));
+      for (multimap<float,int>::iterator it = temp_deviation_osd.find(old_deviation);
+	it != temp_deviation_osd.end() && it->first == old_deviation;
+	it++) {
+	   if (it->second == i.first) {
+             temp_deviation_osd.erase(it);
+	     found = true;
+	     break;
+	   }
+      }
+      ceph_assert(found);
+      temp_osd_deviation.erase(i.first);
+
+      temp_osd_deviation[i.first] = new_deviation;
+      temp_deviation_osd.insert(make_pair(new_deviation, i.first));
+
+      new_stddev -= old_deviation * old_deviation;
+      new_stddev += new_deviation * new_deviation;
+    }
+    for (auto& i : new_pgs_by_osd_add) {
+      // make sure osd is still there (belongs to this crush-tree)
+      ceph_assert(osd_weight.count(i.first));
+      float target = osd_weight[i.first] * pgs_per_weight;
+      float new_deviation = ((float)i.second.size() + pgs_by_osd[i.first].size()) - target;
+      float old_deviation = temp_osd_deviation[i.first];
+      ldout(cct, 20) << "add osd." << i.first
+                     << "\tpgs " << i.second.size()
+                     << "\ttarget " << target
+                     << "\told_deviation " << old_deviation
+                     << "\tnew_deviation " << new_deviation
+                     << dendl;
+      bool found = false;
+      //Multimap needs to look for removal item
+      //temp_deviation_osd.erase(make_pair(old_deviation, i.first));
+      for (multimap<float,int>::iterator it = temp_deviation_osd.find(old_deviation);
+	it != temp_deviation_osd.end() && it->first == old_deviation;
+	it++) {
+	   if (it->second == i.first) {
+             temp_deviation_osd.erase(it);
+	     found = true;
+	     break;
+	   }
+      }
+      ceph_assert(found);
+      temp_osd_deviation.erase(i.first);
+
+      temp_osd_deviation[i.first] = new_deviation;
+      temp_deviation_osd.insert(make_pair(new_deviation, i.first));
+
+      new_stddev -= old_deviation * old_deviation;
+      new_stddev += new_deviation * new_deviation;
     }
     ldout(cct, 10) << " stddev " << stddev << " -> " << new_stddev << dendl;
     if (new_stddev >= stddev) {
