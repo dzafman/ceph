@@ -4195,7 +4195,7 @@ int OSDMap::calc_pg_upmaps(
         // shuffle PG list so they all get equal (in)attention
         std::random_device rd;
         std::default_random_engine rng{rd()};
-        std::shuffle(pgs.begin(), pgs.end(), rng);
+        //std::shuffle(pgs.begin(), pgs.end(), rng);
       }
       // look for remaps we can un-remap
       for (auto pg : pgs) {
@@ -4344,7 +4344,7 @@ int OSDMap::calc_pg_upmaps(
         // shuffle candidates so they all get equal (in)attention
         std::random_device rd;
         std::default_random_engine rng{rd()};
-        std::shuffle(candidates.begin(), candidates.end(), rng);
+        //std::shuffle(candidates.begin(), candidates.end(), rng);
       }
       for (auto& i : candidates) {
         auto pg = i.first;
