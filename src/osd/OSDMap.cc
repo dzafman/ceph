@@ -4275,6 +4275,7 @@ int OSDMap::calc_pg_upmaps(
 	vector<int> orig, out;
         tmp.pg_to_raw_upmap(pg, &orig); // including existing upmaps too
 	if (!try_pg_upmap(cct, pg, overfull, underfull, &orig, &out)) {
+	  ldout(cct, 10) << "try_pg_upmap() failed for pg " << pg << dendl;
 	  continue;
 	}
 	ldout(cct, 10) << " " << pg << " " << orig << " -> " << out << dendl;
