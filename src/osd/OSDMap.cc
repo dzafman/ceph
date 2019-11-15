@@ -4108,8 +4108,9 @@ int OSDMap::calc_pg_upmaps(
     int decay_count = 0;
     while (overfull.empty()) {
       for (auto i = deviation_osd.rbegin(); i != deviation_osd.rend(); i++) {
-        if (i->first >= (1.0 - decay))
-          overfull.insert(i->second);
+        if (i->first < (1.0 - decay))
+	  break;
+        overfull.insert(i->second);
       }
       if (!overfull.empty())
         break;
