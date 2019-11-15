@@ -365,6 +365,10 @@ int main(int argc, const char **argv)
     OSDMap::Incremental pending_inc(osdmap.get_epoch()+1);
     pending_inc.fsid = osdmap.get_fsid();
     vector<int64_t> pools;
+    if (upmap_pools.size() == 1 && *upmap_pools.begin() == string("zafman")) {
+      pools = { 113, 116, 225, 111, 106, 110, 233, 175, 114, 186, 108, 109, 232, 88, 118, 168, 172, 224, 112, 169, 160, 226, 167, 185, 188, 137 };
+      goto special;
+    }
     for (auto& s : upmap_pools) {
       int64_t p = osdmap.lookup_pg_pool_name(s);
       if (p < 0) {
@@ -384,6 +388,7 @@ int main(int argc, const char **argv)
     }
     srand(time(0));
     random_shuffle (pools.begin(), pools.end());
+special:
     cout << "pools ";
     for (auto& i: pools)
       cout << i << " ";
