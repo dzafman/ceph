@@ -4174,13 +4174,23 @@ int OSDMap::calc_pg_upmaps(
       ceph_assert(target > 0);
       float deviation_ratio = deviation / target;
       if (deviation_ratio < max_deviation_ratio) {
-	ldout(cct, 10) << " osd." << osd
+	ldout(cct, 10) << "overfull_loop osd." << osd
                        << " target " << target
                        << " deviation " << deviation
                        << " -> ratio " << deviation_ratio
                        << " < max ratio " << max_deviation_ratio
                        << dendl;
 	break;
+      } else {
+	ldout(cct, 10) << "overfull_loop osd." << osd
+                       << " target " << target
+                       << " deviation " << deviation
+                       << " -> ratio " << deviation_ratio
+                       << dendl;
+        if (std::find(overfull.begin(), overfull.end(), p->second) ==
+                      overfull.end()) {
+          ldout(cct, 10) << "WARNING: osd." << osd << " not in overfull" << dendl;
+        }
       }
 
       vector<pg_t> pgs;
@@ -4312,8 +4322,10 @@ int OSDMap::calc_pg_upmaps(
                    << dendl;
     for (auto& p : deviation_osd) {
       if (std::find(underfull.begin(), underfull.end(), p.second) ==
-                    underfull.end())
+                    underfull.end()) {
+        ldout(cct, 10) << "Stopping: osd." << p.second << " not in underfull" << dendl;
         break;
+      }
       int osd = p.second;
       float deviation = p.first;
       float target = osd_weight[osd] * pgs_per_weight;
@@ -4321,13 +4333,19 @@ int OSDMap::calc_pg_upmaps(
       float deviation_ratio = abs(deviation / target);
       if (deviation_ratio < max_deviation_ratio) {
         // respect max_deviation_ratio too
-        ldout(cct, 10) << " osd." << osd
+        ldout(cct, 10) << "underfull_loop osd." << osd
                        << " target " << target
                        << " deviation " << deviation
                        << " -> absolute ratio " << deviation_ratio
                        << " < max ratio " << max_deviation_ratio
                        << dendl;
         break;
+      } else {
+        ldout(cct, 10) << "underfull_loop osd." << osd
+                       << " target " << target
+                       << " deviation " << deviation
+                       << " -> absolute ratio " << deviation_ratio
+                       << dendl;
       }
       // look for remaps we can un-remap
       vector<pair<pg_t,
