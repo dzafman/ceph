@@ -4216,14 +4216,8 @@ int OSDMap::calc_pg_upmaps(
       OSDMap tmp2;
       tmp2.deepish_copy_from(tmp);
       // look for remaps we can un-remap
-      bool did_unmap;
-      bool did_upmap;
       for (auto pg : pgs) {
-        did_unmap = false;
-        did_upmap = false;
         mempool::osdmap::vector<pair<int32_t,int32_t>> new_upmap_items;
-	did_unmap = false;
-	did_upmap = false;
 	auto p = tmp.pg_upmap_items.find(pg);
         if (p != tmp.pg_upmap_items.end()) {
         for (auto q : p->second) {
@@ -4250,8 +4244,7 @@ int OSDMap::calc_pg_upmaps(
                          << dendl;
           to_unmap.insert(pg);
 	  tmp2.pg_upmap_items.erase(pg);
-	  did_unmap = true;
-          //goto test_change;
+          goto test_change;
         } else if (new_upmap_items.size() != p->second.size()) {
           // drop single remapping pair, updating
           ceph_assert(new_upmap_items.size() < p->second.size());
@@ -4261,8 +4254,7 @@ int OSDMap::calc_pg_upmaps(
                          << dendl;
           to_upmap[pg] = new_upmap_items;
 	  tmp2.pg_upmap_items[pg] = new_upmap_items;
-	  did_upmap = true;
-          //goto test_change;
+          goto test_change;
         }
 	}
 
@@ -4277,13 +4269,13 @@ int OSDMap::calc_pg_upmaps(
 	  ldout(cct, 10) << " " << pg << " already has pg_upmap "
                          << temp_it->second << ", skipping"
                          << dendl;
-	  goto next;
+	  continue;
 	}
         if (new_upmap_items.size() >= (size_t)pg_pool_size) {
           ldout(cct, 10) << " " << pg << " already has full-size pg_upmap_items "
                          << new_upmap_items << ", skipping"
                          << dendl;
-	  goto next;
+	  continue;
         } else if (!new_upmap_items.empty()) {
           ldout(cct, 10) << " " << pg << " already has pg_upmap_items "
                          << new_upmap_items
@@ -4300,11 +4292,11 @@ int OSDMap::calc_pg_upmaps(
         tmp2.pg_to_raw_upmap(pg, &orig); // including existing upmaps too
 	if (!try_pg_upmap(cct, pg, overfull, underfull, &orig, &out)) {
 	  ldout(cct, 10) << "try_pg_upmap() failed for pg " << pg << dendl;
-	  goto next;
+	  continue;
 	}
 	ldout(cct, 10) << " " << pg << " " << orig << " -> " << out << dendl;
 	if (orig.size() != out.size()) {
-	  goto next;
+	  continue;
 	}
 	ldout(cct, 10) << " trying2 " << pg << dendl;
 	ceph_assert(orig != out);
@@ -4331,9 +4323,6 @@ int OSDMap::calc_pg_upmaps(
           to_upmap[pg] = new_upmap_items;
           goto test_change;
 	}
-next:
-        if (did_unmap || did_upmap)
-	  goto test_change;
       }
     }
 
