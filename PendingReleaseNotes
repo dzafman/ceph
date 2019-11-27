@@ -318,3 +318,7 @@
   or manually without ceph-volume and LVM.  Going forward, the OSD
   will limit itself to only 'hdd' and 'ssd' (or whatever device class the user
   manually specifies).
+
+* The config value osd_calc_pg_upmaps_max_stddev has been removed.  The
+   upmap_max_deviation mgr config is used to determine whether an upmap is needed.
+   It is now an integer now representing a number of PGs of deviation (default 1).
