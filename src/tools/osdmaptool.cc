@@ -372,6 +372,7 @@ int main(int argc, const char **argv)
 	 << ", max deviation " << upmap_deviation
 	 << std::endl;
     vector<int64_t> pools;
+    set<int64_t> upmap_pool_nums;
     for (auto& s : upmap_pools) {
       int64_t p = osdmap.lookup_pg_pool_name(s);
       if (p < 0) {
@@ -379,6 +380,7 @@ int main(int argc, const char **argv)
 	exit(1);
       }
       pools.push_back(p);
+      upmap_pool_nums.insert(p);
     }
     if (!pools.empty()) {
       cout << " limiting to pools " << upmap_pools << " (" << pools << ")"
@@ -443,6 +445,23 @@ int main(int argc, const char **argv)
       if (upmap_active) {
         float elapsed_time = (end.tv_sec - round_start.tv_sec) + 1.0e-9*(end.tv_nsec - round_start.tv_nsec);
         cout << "Total time elapsed " << elapsed_time << " secs, " << rounds << " rounds" << std::endl;
+  map<int,set<pg_t>> pgs_by_osd;
+  for (auto& i : osdmap.get_pools()) {
+    if (!upmap_pool_nums.empty() && !upmap_pool_nums.count(i.first))
+      continue;
+    for (unsigned ps = 0; ps < i.second.get_pg_num(); ++ps) {
+      pg_t pg(ps, i.first);
+      vector<int> up;
+      osdmap.pg_to_up_acting_osds(pg, &up, nullptr, nullptr, nullptr);
+      //ldout(cct, 20) << __func__ << " " << pg << " up " << up << dendl;
+      for (auto osd : up) {
+        if (osd != CRUSH_ITEM_NONE)
+	  pgs_by_osd[osd].insert(pg);
+      }
+    }
+  }
+    for (auto& i : pgs_by_osd)
+	cout << "osd." << i.first << " pgs " << i.second.size() << std::endl;
       }
       break;
     }
