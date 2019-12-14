@@ -7,7 +7,7 @@
   marking OSD@147 as out
   writing upmap command output to: c
   checking for upmap cleanups
-  upmap, max-count 11, max deviation 1
+  upmap, max-count 11, max deviation 5
   prepared 11 changes for pools(s) rbd 
   prepared 11 changes in total
   $ cat c
