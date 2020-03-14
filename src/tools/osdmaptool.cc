@@ -146,13 +146,16 @@ int main(int argc, const char **argv)
   std::string upmap_file = "-";
   int upmap_max = 10;
   int upmap_deviation = 5;
+  unsigned int upmap_max_pgs = 128;
   bool upmap_active = false;
   std::set<std::string> upmap_pools;
   int64_t pg_num = -1;
   bool test_map_pgs_dump_all = false;
+  bool debug = false;
 
   std::string val;
   std::ostringstream err;
+  int ump;
   for (std::vector<const char*>::iterator i = args.begin(); i != args.end(); ) {
     if (ceph_argparse_double_dash(args, i)) {
       break;
@@ -179,6 +182,8 @@ int main(int argc, const char **argv)
       upmap = true;
     } else if (ceph_argparse_witharg(args, i, &upmap_max, err, "--upmap-max", (char*)NULL)) {
     } else if (ceph_argparse_witharg(args, i, &upmap_deviation, err, "--upmap-deviation", (char*)NULL)) {
+    } else if (ceph_argparse_witharg(args, i, &ump, err, "--upmap-max-pgs", (char*)NULL)) {
+      upmap_max_pgs = static_cast<unsigned int>(ump);
     } else if (ceph_argparse_witharg(args, i, &val, "--upmap-pool", (char*)NULL)) {
       upmap_pools.insert(val);
     } else if (ceph_argparse_witharg(args, i, &num_osd, err, "--createsimple", (char*)NULL)) {
@@ -211,6 +216,8 @@ int main(int argc, const char **argv)
       test_random = true;
     } else if (ceph_argparse_flag(args, i, "--clobber", (char*)NULL)) {
       clobber = true;
+    } else if (ceph_argparse_flag(args, i, "--debug", (char*)NULL)) {
+      debug = true;
     } else if (ceph_argparse_witharg(args, i, &pg_bits, err, "--pg_bits", (char*)NULL)) {
       if (!err.str().empty()) {
 	cerr << err.str() << std::endl;
@@ -434,56 +441,56 @@ int main(int argc, const char **argv)
          cout << "pool " << pool_name << " has pending PG(s) for merging, skipping for now" << std::endl;
          continue;
         }
-        //if (debug) {
-          //cout << "pool " << i << " rule " << rule << " pgs " << p->get_pg_num() << std::endl;
-        //}
+        if (debug) {
+          cout << "pool " << i << " rule " << rule << " pgs " << p->get_pg_num() << std::endl;
+        }
         pools_by_rule[rule].push_back(i);
       }
       vector< set<int64_t> > new_pools;
-      int limit_pgs = 0;
+      unsigned int limit_pgs = 0;
       int rule_pgs = 0;
       int cur_rule = -1;
       new_pools.resize(new_pools.size() + 1);
       for (auto& r: pools_by_rule) {
 	if (!new_pools.rbegin()->empty()) {
           new_pools.resize(new_pools.size() + 1);
-          cout << "rule: " << r.first << " pools:";
+          if (debug) cout << "rule: " << r.first << " pools:";
 	} else if (cur_rule != r.first) {
-          cout << "rule: " << r.first << " pools:";
+          if (debug) cout << "rule: " << r.first << " pools:";
 	}
 	cur_rule = r.first;
 	limit_pgs = 0;
 	for (auto& i: r.second) {
           const pg_pool_t *p = osdmap.get_pg_pool(i);
 	  rule_pgs += p->get_pg_num();
-	  if (p->get_pg_num() > 200 && !new_pools.rbegin()->empty()) {
-	    cout << " limit pgs " << limit_pgs << std::endl;
+	  if (p->get_pg_num() > upmap_max_pgs && !new_pools.rbegin()->empty()) {
+	    if (debug) cout << " limit pgs " << limit_pgs << std::endl;
 	    new_pools.resize(new_pools.size() + 1);
 	    limit_pgs = 0;
-            cout << "rule: " << r.first << " pools:";
+            if (debug) cout << "rule: " << r.first << " pools:";
 	  }
 	  limit_pgs += p->get_pg_num();
-	  cout << " " << i;
+	  if (debug) cout << " " << i;
 	  new_pools.rbegin()->insert(i);
-	  if (limit_pgs > 200) {
-	    cout << " limit pgs " << limit_pgs << std::endl;
+	  if (limit_pgs > upmap_max_pgs) {
+	    if (debug) cout << " limit pgs " << limit_pgs << std::endl;
 	    new_pools.resize(new_pools.size() + 1);
 	    limit_pgs = 0;
-            cout << "rule: " << r.first << " pools:";
+            if (debug) cout << "rule: " << r.first << " pools:";
 	  }
 	}
 	if (limit_pgs > 0) {
-	    cout << " limit pgs " << limit_pgs << std::endl;
+	    if (debug) cout << " limit pgs " << limit_pgs << std::endl;
 	}
-	cout << std::endl << "rule " << r.first << " total pgs " << rule_pgs << std::endl;
+	if (debug) cout << std::endl << "rule " << r.first << " total pgs " << rule_pgs << std::endl;
 	rule_pgs = 0;
       }
 
       for (auto& i: new_pools) {
         for (auto& j: i) {
-	  cout << " " << j;
+	  if (debug) cout << " " << j;
 	}
-	cout << std::endl;
+	if (debug) cout << std::endl;
       }
 
 #if 0
