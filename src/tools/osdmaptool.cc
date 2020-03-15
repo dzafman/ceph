@@ -452,6 +452,8 @@ int main(int argc, const char **argv)
       int cur_rule = -1;
       new_pools.resize(new_pools.size() + 1);
       for (auto& r: pools_by_rule) {
+	if (r.second.empty())
+	  continue;
 	if (!new_pools.rbegin()->empty()) {
           new_pools.resize(new_pools.size() + 1);
           if (debug) cout << "rule: " << r.first << " pools:";
@@ -462,9 +464,15 @@ int main(int argc, const char **argv)
 	limit_pgs = 0;
 	for (auto& i: r.second) {
           const pg_pool_t *p = osdmap.get_pg_pool(i);
+	  if (limit_pgs > upmap_max_pgs) {
+	    if (debug) cout << " limit pgs " << limit_pgs << std::endl;
+	    new_pools.resize(new_pools.size() + 1);
+	    limit_pgs = 0;
+            if (debug) cout << "rule: " << r.first << " pools:";
+	  }
 	  rule_pgs += p->get_pg_num();
 	  if (p->get_pg_num() > upmap_max_pgs && !new_pools.rbegin()->empty()) {
-	    if (debug) cout << " limit pgs " << limit_pgs << std::endl;
+	    if (debug) cout << " NOT EMPTY limit pgs " << limit_pgs << std::endl;
 	    new_pools.resize(new_pools.size() + 1);
 	    limit_pgs = 0;
             if (debug) cout << "rule: " << r.first << " pools:";
@@ -472,40 +480,25 @@ int main(int argc, const char **argv)
 	  limit_pgs += p->get_pg_num();
 	  if (debug) cout << " " << i;
 	  new_pools.rbegin()->insert(i);
-	  if (limit_pgs > upmap_max_pgs) {
-	    if (debug) cout << " limit pgs " << limit_pgs << std::endl;
-	    new_pools.resize(new_pools.size() + 1);
-	    limit_pgs = 0;
-            if (debug) cout << "rule: " << r.first << " pools:";
-	  }
 	}
 	if (limit_pgs > 0) {
 	    if (debug) cout << " limit pgs " << limit_pgs << std::endl;
 	}
-	if (debug) cout << std::endl << "rule " << r.first << " total pgs " << rule_pgs << std::endl;
+	if (debug) cout << "rule " << r.first << " total pgs " << rule_pgs << std::endl;
 	rule_pgs = 0;
       }
 
-      for (auto& i: new_pools) {
-        for (auto& j: i) {
-	  if (debug) cout << " " << j;
-	}
-	if (debug) cout << std::endl;
-      }
-
-#if 0
-      vector<int> rules;
-      for (auto& r: pools_by_rule)
-        rules.push_back(r.first);
-     std::random_device rd;
-      std::shuffle(rules.begin(), rules.end(), std::mt19937{rd()});
       if (debug) {
-        for (auto& r: rules)
-          cout << "rule: " << r << " " << pools_by_rule[r] << std::endl;
+	   cout << "final pools" << std::endl;
+        for (auto& i: new_pools) {
+	  if (i.empty()) abort();
+          for (auto& j: i) {
+	    if (debug) cout << " (" << j << ")";
+	  }
+	  if (debug) cout << std::endl;
+        }
+	cout << "DONE" << std::endl;
       }
-#endif
-// XXX: done
-
 
       OSDMap::Incremental pending_inc(osdmap.get_epoch()+1);
       pending_inc.fsid = osdmap.get_fsid();
