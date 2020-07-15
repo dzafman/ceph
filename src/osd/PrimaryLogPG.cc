@@ -1151,6 +1151,7 @@ void PrimaryLogPG::do_command(
       } else {
         set_last_scrub_stamp(stamp);
       }
+      on_info_history_change();
       f->open_object_section("result");
       f->dump_bool("deep", deep);
       f->dump_stream("stamp") << stamp;
