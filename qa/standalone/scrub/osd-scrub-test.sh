@@ -273,6 +273,7 @@ function _scrub_abort() {
     local primary=$(get_primary $poolname obj1)
     local pgid="${poolid}.0"
 
+    # Not sure why but if we don't sleep the tell doesn't work
     ceph tell $pgid $type || return 1
     # deep-scrub won't start without scrub noticing
     if [ "$type" = "deep_scrub" ];
@@ -285,13 +286,15 @@ function _scrub_abort() {
     # XXX: Limit time
     while(true)
     do
+    ceph pg dump pgs
     if ceph pg dump pgs | grep  ^$pgid| grep -q "scrubbing"
     then
       break
     fi
-    sleep 2
     done
     set +o pipefail
+
+    sleep 3
 
     ceph osd set $stopscrub
 
