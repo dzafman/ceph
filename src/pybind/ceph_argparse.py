@@ -447,7 +447,9 @@ class CephOsdName(CephArgtype):
 
     def valid(self, s, partial=False):
         if s == '*':
-            self.val = s
+            self.nametype = 'osd'
+            self.nameid = -1
+            self.val = -1
             return
         if s.find('.') != -1:
             t, i = s.split('.', 1)
