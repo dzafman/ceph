@@ -27,6 +27,16 @@ class MappingState:
         self.pg_stat = {
             i['pgid']: i['stat_sum'] for i in raw_pg_stats.get('pg_stats', [])
         }
+        self.space_stats = {
+            "osds":[],
+            "pgs": [],
+        }
+        self.space_stats['pgs'] = [
+                {
+                    "pgid": i['pgid'],
+                    "pg_bytes": i['stat_sum']['num_bytes']+i['stat+sum']['num_omap_bytes']
+                }
+        ] for i in raw_pg_stats.get('pg_stats', [])
         osd_poolids = [p['pool'] for p in self.osdmap_dump.get('pools', [])]
         pg_poolids = [p['poolid'] for p in raw_pool_stats.get('pool_stats', [])]
         self.poolids = set(osd_poolids) & set(pg_poolids)
@@ -293,7 +303,7 @@ class Module(MgrModule):
             'name': 'mode',
             'desc': 'Balancer mode',
             'default': 'upmap',
-            'enum_allowed': ['none', 'crush-compat', 'upmap'],
+            'enum_allowed': ['none', 'crush-compat', 'upmap', 'space'],
             'runtime': True,
         },
         {
@@ -440,7 +450,7 @@ class Module(MgrModule):
             }
             return (0, json.dumps(s, indent=4, sort_keys=True), '')
         elif command['prefix'] == 'balancer mode':
-            if command['mode'] == 'upmap':
+            if command['mode'] == 'upmap' or command['mode'] == 'space':
                 min_compat_client = self.get_osdmap().dump().get('require_min_compat_client', '')
                 if min_compat_client < 'luminous': # works well because version is alphabetized..
                     warn = 'min_compat_client "%s" ' \
@@ -699,6 +709,8 @@ class Module(MgrModule):
             # complete pg_stats, which can become horribly inefficient
             # as pg_num grows..
             plan = Plan(name, mode, osdmap, pools)
+        elif mode == 'space':
+            # XXX: Calculate per pg num_bytes here?  Create new plan type SsPlan?
         else:
             plan = MsPlan(name,
                           mode,
